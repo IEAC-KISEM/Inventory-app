@@ -10,15 +10,16 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
+    "exceljs": "^4.3.0",
     "lucide-react": "^1.22.0",
+    "mqtt": "^5.15.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "socket.io-client": "^4.8.3",
     "tailwind-merge": "^3.6.0",
-    "tailwindcss-animate": "^1.0.7",
-    "bcryptjs": "^3.0.3",
-    "exceljs": "^4.3.0"
+    "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",

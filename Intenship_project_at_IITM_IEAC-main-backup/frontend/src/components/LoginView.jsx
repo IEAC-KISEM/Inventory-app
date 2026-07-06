@@ -3,13 +3,14 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
-import { ShieldAlert, KeyRound, Mail, Sparkles } from "lucide-react"
+import { ShieldAlert, KeyRound, Mail, Sparkles, Eye, EyeOff } from "lucide-react"
 
 export default function LoginView({ onLoginSuccess }) {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -36,6 +37,7 @@ export default function LoginView({ onLoginSuccess }) {
       console.error("Login request failed", err)
       setError("Unable to connect to the server. Please try again.")
     } finally {
+      document.body.style.cursor = "default"
       setLoading(false)
     }
   }
@@ -96,14 +98,22 @@ export default function LoginView({ onLoginSuccess }) {
                 <KeyRound className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground/60" />
                 <Input
                   id="password"
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="pl-10 h-10 w-full"
+                  className="pl-10 pr-10 h-10 w-full"
                   required
                   disabled={loading}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-2.5 text-muted-foreground/60 hover:text-foreground focus:outline-none cursor-pointer"
+                  disabled={loading}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 

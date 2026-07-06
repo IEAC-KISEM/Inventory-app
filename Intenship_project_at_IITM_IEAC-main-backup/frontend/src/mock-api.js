@@ -1,27 +1,101 @@
 // Client-Side Simulated API Layer for Netlify Serverless Deployment
 import ExcelJS from 'exceljs';
 import bcrypt from 'bcryptjs';
+import mqtt from 'mqtt';
 import { socket } from './mock-socket';
 
 // Default data seeded from data.json
 import SEEDED_DATA from './data.json';
 
+// Unique client ID for this browser tab/window to avoid echo loops
+if (import.meta.env.VITE_USE_MOCK !== 'false') {
+
+const SYNC_CLIENT_ID = 'client_' + Math.random().toString(36).substring(2, 15);
+const SYNC_TOPIC = 'iitm/asset-management/sync/v1/GokulramBalaji';
+
+let mqttClient = null;
+
 // Initialise Database in LocalStorage
 function getDb() {
   const local = localStorage.getItem('iitm_db');
   if (!local) {
-    localStorage.setItem('iitm_db', JSON.stringify(SEEDED_DATA));
-    return SEEDED_DATA;
+    const defaultData = { ...SEEDED_DATA, lastUpdatedTime: Date.now() };
+    localStorage.setItem('iitm_db', JSON.stringify(defaultData));
+    return defaultData;
   }
   return JSON.parse(local);
 }
 
 function writeDb(data) {
+  const timestamp = Date.now();
+  data.lastUpdatedTime = timestamp;
   localStorage.setItem('iitm_db', JSON.stringify(data));
-  // Broadcast update to the frontend app
+  
+  // Broadcast update to the local frontend app
   setTimeout(() => {
     socket.emit('data_updated');
+    socket.emit('instruments', data.instruments || []);
+    socket.emit('bookings');
   }, 50);
+
+  // Publish update to the cloud broker for other users
+  if (mqttClient && mqttClient.connected) {
+    try {
+      const payload = {
+        senderId: SYNC_CLIENT_ID,
+        timestamp: timestamp,
+        data: data
+      };
+      mqttClient.publish(SYNC_TOPIC, JSON.stringify(payload), { qos: 1 });
+    } catch (err) {
+      console.error('Failed to publish sync message:', err);
+    }
+  }
+}
+
+// Setup real-time connection
+try {
+  mqttClient = mqtt.connect('wss://broker.hivemq.com:8884/mqtt', {
+    clientId: SYNC_CLIENT_ID,
+    clean: true,
+    connectTimeout: 4000,
+    reconnectPeriod: 2000,
+  });
+
+  mqttClient.on('connect', () => {
+    console.log('Real-time sync: connected to cloud broker.');
+    mqttClient.subscribe(SYNC_TOPIC);
+  });
+
+  mqttClient.on('message', (topic, message) => {
+    try {
+      const payload = JSON.parse(message.toString());
+      if (payload.senderId === SYNC_CLIENT_ID) return; // Ignore own message
+
+      console.log('Real-time sync: received database update from another user.');
+      const localDb = getDb();
+
+      // Last-Write-Wins (LWW) conflict resolution
+      if (!localDb.lastUpdatedTime || payload.timestamp > localDb.lastUpdatedTime) {
+        const remoteDb = payload.data;
+        remoteDb.lastUpdatedTime = payload.timestamp;
+        localStorage.setItem('iitm_db', JSON.stringify(remoteDb));
+        
+        // Trigger React UI updates on other clients
+        socket.emit('data_updated');
+        socket.emit('instruments', remoteDb.instruments || []);
+        socket.emit('bookings');
+      }
+    } catch (err) {
+      console.error('Failed to parse sync message:', err);
+    }
+  });
+
+  mqttClient.on('error', (err) => {
+    console.error('Real-time sync error:', err);
+  });
+} catch (err) {
+  console.error('Failed to initialize real-time sync:', err);
 }
 
 // Seed admin user if it doesn't exist
@@ -1323,3 +1397,6 @@ window.fetch = async function (url, options = {}) {
     return errorResponse('Internal Server Error: ' + err.message, 500);
   }
 };
+
+
+}

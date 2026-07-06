@@ -23,7 +23,10 @@ class MockSocket {
   }
 }
 
-export const socket = new MockSocket();
+if (!window.__mock_socket) {
+  window.__mock_socket = new MockSocket();
+}
+export const socket = window.__mock_socket;
 export function io() {
   setTimeout(() => {
     socket.emit("connect");

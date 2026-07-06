@@ -2,13 +2,14 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 
-// https://vite.dev/config/
+const useMock = process.env.VITE_USE_MOCK !== 'false';
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      'socket.io-client': path.resolve(__dirname, './src/mock-socket.js'),
+      ...(useMock ? { 'socket.io-client': path.resolve(__dirname, './src/mock-socket.js') } : {}),
     },
   },
   server: {
