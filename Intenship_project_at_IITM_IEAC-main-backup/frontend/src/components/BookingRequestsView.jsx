@@ -14,7 +14,7 @@ import { Check, X, ShieldQuestion, Calendar, User, Info, Layers } from "lucide-r
  * Both approve and deny accept either a bookingId or a bulkGroupId — the backend
  * decides the correct path automatically.
  */
-export default function BookingRequestsView({ offerDownload }) {
+export default function BookingRequestsView({ offerDownload, loadPendingRequestsCount }) {
   const [requests, setRequests] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -43,6 +43,7 @@ export default function BookingRequestsView({ offerDownload }) {
       if (res.ok) {
         if (data.sheet) offerDownload(data.sheet)   // auto-download XLSX for admin
         fetchRequests()
+        if (loadPendingRequestsCount) loadPendingRequestsCount()
       } else {
         setError(data.error || "Approval failed.")
       }
@@ -61,6 +62,7 @@ export default function BookingRequestsView({ offerDownload }) {
       const res = await fetch(`/api/booking-requests/${requestId}/deny`, { method: "POST" })
       if (res.ok) {
         fetchRequests()
+        if (loadPendingRequestsCount) loadPendingRequestsCount()
       } else {
         const data = await res.json()
         setError(data.error || "Deny failed.")
@@ -100,8 +102,8 @@ export default function BookingRequestsView({ offerDownload }) {
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-6">
-          <div className="rounded-md border">
-            <Table>
+          <div className="rounded-md border overflow-x-auto">
+            <Table className="min-w-[700px] sm:min-w-full">
               <TableHeader>
                 <TableRow>
                   <TableHead>Requested By</TableHead>

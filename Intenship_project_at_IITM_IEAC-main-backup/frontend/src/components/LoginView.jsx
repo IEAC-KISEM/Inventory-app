@@ -56,11 +56,11 @@ export default function LoginView({ onLoginSuccess }) {
             />
             <img
               src="https://lh3.googleusercontent.com/d/1_h0FAF9gosStf26KKGPOqPBdGozZdPCr"
-              alt="IEAS Logo"
+              alt="IEAC Logo"
               className="h-12 w-auto object-contain bg-white rounded-lg p-1 shadow-md"
             />
           </div>
-          <CardTitle className="text-2xl font-bold tracking-tight text-foreground">IITM IEAS</CardTitle>
+          <CardTitle className="text-2xl font-bold tracking-tight text-foreground">IITM IEAC</CardTitle>
           <CardDescription className="text-muted-foreground font-medium mt-1">Asset Management System Login</CardDescription>
         </CardHeader>
 

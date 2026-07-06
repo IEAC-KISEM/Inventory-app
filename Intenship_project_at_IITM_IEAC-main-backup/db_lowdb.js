@@ -3,17 +3,22 @@ const { JSONFile } = require('lowdb/node');
 const path = require('path');
 const { nanoid } = require('nanoid');
 const fs = require('fs');
+const bcrypt = require('bcryptjs');
 
 const file = path.join(__dirname, 'data.json');
 const adapter = new JSONFile(file);
 // Provide default data to avoid lowdb missing default data error
-const defaultData = { users: [], instruments: [], bookings: [] };
+const defaultData = { users: [], instruments: [], bookings: [], vendors: [], products: [], utilities: [] };
 const db = new Low(adapter, defaultData);
 
 async function init() {
   await db.read();
-  db.data = db.data || { users: [], instruments: [], bookings: [] };
+  db.data = db.data || { users: [], instruments: [], bookings: [], vendors: [], products: [], utilities: [] };
   
+  if (!db.data.vendors) db.data.vendors = [];
+  if (!db.data.products) db.data.products = [];
+  if (!db.data.utilities) db.data.utilities = [];
+
   // Ensure default admin user exists
   if (!db.data.users || db.data.users.length === 0) {
     db.data.users = [
@@ -27,7 +32,96 @@ async function init() {
       }
     ];
   }
+
+  // Seed default utilities if empty
+  if (db.data.utilities.length === 0) {
+    const defaultUtils = [
+      "Boiler", "Compressor", "Chiller", "Motor", "Pump",
+      "HVAC", "Lighting", "Air Compressor", "Transformer", "Cooling Tower"
+    ];
+    db.data.utilities = defaultUtils.map(name => ({
+      id: name.toLowerCase().trim(),
+      name: name.trim()
+    }));
+  }
+
+  // Seed default vendors and products if empty
+  if (db.data.vendors.length === 0) {
+    db.data.vendors = [
+      {
+        id: "VND-FLK01",
+        name: "Fluke India Pvt Ltd",
+        companyName: "Fluke Corporation",
+        vendorType: "Manufacturer",
+        status: "Active",
+        contactPerson: "Rajesh Kumar",
+        mobileNumber: "+919876543210",
+        alternativeMobileNumber: "+918877665544",
+        email: "rajesh@fluke.in",
+        website: "www.fluke.com/en-in",
+        streetAddress: "102 Industrial Tech Park, Phase 1",
+        city: "Chennai",
+        state: "Tamil Nadu",
+        country: "India",
+        pinCode: "600036",
+        gstin: "33AAAAA1111A1Z1",
+        pan: "AAAAA1111A",
+        remarks: "Preferred manufacturer for high-end diagnostic and power quality analyzers."
+      },
+      {
+        id: "VND-HIO02",
+        name: "Hioki Instruments Distributor",
+        companyName: "Hioki EE Corporation",
+        vendorType: "Distributor",
+        status: "Active",
+        contactPerson: "Anita Patel",
+        mobileNumber: "+919988776655",
+        alternativeMobileNumber: "",
+        email: "anita@hiokipapers.com",
+        website: "www.hioki.com",
+        streetAddress: "404 Trade Centre, MG Road",
+        city: "Mumbai",
+        state: "Maharashtra",
+        country: "India",
+        pinCode: "400001",
+        gstin: "27BBBBB2222B2Z2",
+        pan: "BBBBB2222B",
+        remarks: "Primary source for clamp meters and logger probes."
+      }
+    ];
+
+    db.data.products = [
+      {
+        id: "PRD-FL001",
+        vendorId: "VND-FLK01",
+        name: "Power Quality Analyzer Probe",
+        description: "Flexible current probe for Fluke 1775.",
+        category: "Accessories",
+        brand: "Fluke",
+        modelNumber: "PM9081",
+        unitOfMeasurement: "Units",
+        productStatus: "Active",
+        utilityId: "transformer",
+        utilityName: "Transformer"
+      },
+      {
+        id: "PRD-HI002",
+        vendorId: "VND-HIO02",
+        name: "Hioki Clamp Logger Sensor",
+        description: "AC/DC Current sensor for power loggers.",
+        category: "Sensors",
+        brand: "Hioki",
+        modelNumber: "CT7631",
+        unitOfMeasurement: "Units",
+        productStatus: "Active",
+        utilityId: "motor",
+        utilityName: "Motor"
+      }
+    ];
+  }
+
   await db.write();
+  await hashPasswordsInDb();
 }
 
 async function getInstruments() {
@@ -85,6 +179,18 @@ async function deleteInstrument(id) {
   await db.write();
 }
 
+async function deleteBooking(id) {
+  await db.read();
+  db.data.bookings = db.data.bookings.filter(b => String(b.id) !== String(id));
+  await db.write();
+}
+
+async function deleteBookingsByBulkGroupId(groupId) {
+  await db.read();
+  db.data.bookings = db.data.bookings.filter(b => String(b.bulkGroupId) !== String(groupId));
+  await db.write();
+}
+
 async function getUsers() {
   await db.read();
   return db.data.users;
@@ -106,15 +212,49 @@ async function getBookings() {
 
 async function findActiveBookingByInstrument(instrumentId) {
   await db.read();
-  return db.data.bookings.find(b => b.instrumentId === instrumentId && !b.returnedDate && b.status !== 'pending' && b.status !== 'denied');
+  const now = new Date();
+  const bookings = db.data.bookings
+    .filter(b => String(b.instrumentId) === String(instrumentId) && !b.returnedDate && b.status === 'approved')
+    .sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
+
+  const activeBookings = bookings.filter(b => {
+    const start = new Date(b.startDate);
+    const due = new Date(b.dueDate);
+    return start <= now && due >= now;
+  });
+
+  if (activeBookings.length > 0) {
+    return activeBookings[activeBookings.length - 1];
+  }
+
+  // If no booking covers now, return the most recent overdue booking not yet returned.
+  const overdue = bookings.filter(b => new Date(b.dueDate) < now);
+  if (overdue.length > 0) {
+    return overdue[overdue.length - 1];
+  }
+
+  if (bookings.length > 0) {
+    return bookings[0];
+  }
+
+  return null;
 }
 
-async function returnBooking(bookingId, returnedDate, remarks) {
+async function returnBooking(bookingId, returnedDate, remarks, returnedById, returnedByName) {
   await db.read();
-  const b = db.data.bookings.find(x => x.id === bookingId);
+  const b = db.data.bookings.find(x => String(x.id) === String(bookingId));
   if (!b) return null;
   b.returnedDate = returnedDate;
-  b.remarks = remarks || b.remarks;
+  b.dueDate = returnedDate;
+  if (remarks) {
+    b.returnRemarks = remarks;
+  }
+  if (returnedById) {
+    b.returnedById = returnedById;
+  }
+  if (returnedByName) {
+    b.returnedByName = returnedByName;
+  }
   await db.write();
   return b;
 }
@@ -142,10 +282,34 @@ async function getInstrumentsDueForCalibration(days=15){
 
 async function writeData() { await db.write(); }
 
+async function setBookings(bookings) {
+  await db.read();
+  db.data.bookings = bookings;
+  await db.write();
+  return db.data.bookings;
+}
+
+async function hashPasswordsInDb() {
+  await db.read();
+  let updated = false;
+  db.data.users = db.data.users || [];
+  for (const user of db.data.users) {
+    if (user.password && !user.password.startsWith('$2a$') && !user.password.startsWith('$2b$')) {
+      user.password = await bcrypt.hash(user.password, 10);
+      updated = true;
+    }
+  }
+  if (updated) {
+    await db.write();
+    console.log('Successfully migrated passwords to secure bcrypt hashes.');
+  }
+}
+
 async function insertUser(u) {
   await db.read();
   const id = nanoid(8);
-  const row = { id, ...u };
+  const hashedPassword = await bcrypt.hash(u.password, 10);
+  const row = { id, ...u, password: hashedPassword };
   db.data.users.push(row);
   await db.write();
   return row;
@@ -181,6 +345,101 @@ async function deleteUser(id) {
   await db.write();
 }
 
+async function getVendors() {
+  await db.read();
+  return db.data.vendors || [];
+}
+
+async function getVendorById(id) {
+  await db.read();
+  return (db.data.vendors || []).find(v => String(v.id) === String(id));
+}
+
+async function insertVendor(v) {
+  await db.read();
+  const id = 'VND' + nanoid(5).toUpperCase();
+  const row = { id, ...v };
+  db.data.vendors = db.data.vendors || [];
+  db.data.vendors.push(row);
+  await db.write();
+  return row;
+}
+
+async function updateVendor(id, fields) {
+  await db.read();
+  const vendor = (db.data.vendors || []).find(v => String(v.id) === String(id));
+  if (!vendor) return null;
+  Object.assign(vendor, fields);
+  await db.write();
+  return vendor;
+}
+
+async function deleteVendor(id) {
+  await db.read();
+  db.data.vendors = (db.data.vendors || []).filter(v => String(v.id) !== String(id));
+  db.data.products = (db.data.products || []).filter(p => String(p.vendorId) !== String(id));
+  await db.write();
+}
+
+async function getProducts() {
+  await db.read();
+  return db.data.products || [];
+}
+
+async function getProductsByVendor(vendorId) {
+  await db.read();
+  return (db.data.products || []).filter(p => String(p.vendorId) === String(vendorId));
+}
+
+async function getProductById(id) {
+  await db.read();
+  return (db.data.products || []).find(p => String(p.id) === String(id));
+}
+
+async function insertProduct(p) {
+  await db.read();
+  const id = 'PRD' + nanoid(5).toUpperCase();
+  const row = { id, ...p };
+  db.data.products = db.data.products || [];
+  db.data.products.push(row);
+  await db.write();
+  return row;
+}
+
+async function updateProduct(id, fields) {
+  await db.read();
+  const prod = (db.data.products || []).find(p => String(p.id) === String(id));
+  if (!prod) return null;
+  Object.assign(prod, fields);
+  await db.write();
+  return prod;
+}
+
+async function deleteProduct(id) {
+  await db.read();
+  db.data.products = (db.data.products || []).filter(p => String(p.id) !== String(id));
+  await db.write();
+}
+
+async function getUtilities() {
+  await db.read();
+  return db.data.utilities || [];
+}
+
+async function insertUtility(name) {
+  await db.read();
+  db.data.utilities = db.data.utilities || [];
+  const norm = name.toLowerCase().trim();
+  const existing = db.data.utilities.find(u => u.id === norm);
+  if (existing) {
+    return existing;
+  }
+  const row = { id: norm, name: name.trim() };
+  db.data.utilities.push(row);
+  await db.write();
+  return row;
+}
+
 module.exports = {
   init,
   getInstruments,
@@ -200,6 +459,23 @@ module.exports = {
   setInstrumentInsight,
   getInstrumentByIdFull,
   getBookingsByBulkGroupId,
+  deleteBooking,
+  deleteBookingsByBulkGroupId,
   deleteUser,
-  writeData
+  hashPasswordsInDb,
+  writeData,
+  setBookings,
+  getVendors,
+  getVendorById,
+  insertVendor,
+  updateVendor,
+  deleteVendor,
+  getProducts,
+  getProductsByVendor,
+  getProductById,
+  insertProduct,
+  updateProduct,
+  deleteProduct,
+  getUtilities,
+  insertUtility
 };

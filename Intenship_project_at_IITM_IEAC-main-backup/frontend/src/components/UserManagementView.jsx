@@ -6,9 +6,9 @@ import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { UserPlus, Users, Phone, Mail, KeyRound, User, CheckCircle2, AlertCircle, Trash2 } from "lucide-react"
+import { UserPlus, Users, Phone, Mail, KeyRound, User, CheckCircle2, AlertCircle, Trash2, Database, Download, AlertTriangle } from "lucide-react"
 
-export default function UserManagementView({ currentUser }) {
+export default function UserManagementView({ currentUser, offerDownload }) {
   const [users, setUsers] = useState([])
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
@@ -20,6 +20,87 @@ export default function UserManagementView({ currentUser }) {
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
+
+  // System Maintenance States
+  const [extractStart, setExtractStart] = useState("")
+  const [extractEnd, setExtractEnd] = useState("")
+  const [clearStart, setClearStart] = useState("")
+  const [clearEnd, setClearEnd] = useState("")
+  const [confirmClear, setConfirmClear] = useState(false)
+  const [systemSuccess, setSystemSuccess] = useState("")
+  const [systemError, setSystemError] = useState("")
+
+  const handleExtract = async (e) => {
+    e.preventDefault()
+    setSystemSuccess("")
+    setSystemError("")
+    if (!extractStart || !extractEnd) {
+      setSystemError("Please select both from and to dates.")
+      return
+    }
+    if (new Date(extractEnd) < new Date(extractStart)) {
+      setSystemError("End date cannot be before start date.")
+      return
+    }
+    try {
+      const res = await fetch(`/api/admin/extract-bookings?start=${extractStart}&end=${extractEnd}`)
+      const data = await res.json()
+      if (res.ok && data.sheet) {
+        setSystemSuccess("Spreadsheet generated successfully. Starting download...")
+        offerDownload(data.sheet)
+      } else {
+        setSystemError(data.error || "Failed to extract booking records.")
+      }
+    } catch (err) {
+      console.error("Extract failed", err)
+      setSystemError("Failed to connect to the server.")
+    }
+  }
+
+  const handleClear = async (e) => {
+    e.preventDefault()
+    setSystemSuccess("")
+    setSystemError("")
+
+    const isClearAll = !clearStart && !clearEnd
+    if (!isClearAll && (!clearStart || !clearEnd)) {
+      setSystemError("Please select both from and to dates, or clear all history by leaving the fields empty.")
+      return
+    }
+    if (!isClearAll && new Date(clearEnd) < new Date(clearStart)) {
+      setSystemError("End date cannot be before start date.")
+      return
+    }
+
+    if (!confirmClear) {
+      setConfirmClear(true)
+      setTimeout(() => {
+        setConfirmClear(false)
+      }, 5000)
+      return
+    }
+
+    setConfirmClear(false)
+    try {
+      const res = await fetch("/api/admin/clear-bookings", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ start: clearStart || null, end: clearEnd || null })
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setSystemSuccess(`Successfully cleared ${data.count} booking records from history.`)
+        setClearStart("")
+        setClearEnd("")
+      } else {
+        setSystemError(data.error || "Failed to clear booking records.")
+      }
+    } catch (err) {
+      console.error("Clear failed", err)
+      setSystemError("Failed to connect to the server.")
+    }
+  }
 
   const fetchUsers = async () => {
     try {
@@ -201,6 +282,7 @@ export default function UserManagementView({ currentUser }) {
                   className="w-full bg-background border"
                 >
                   <option value="engineer">Engineer</option>
+                  <option value="trainee">Trainee</option>
                   <option value="admin">Administrator</option>
                 </Select>
               </div>
@@ -226,8 +308,8 @@ export default function UserManagementView({ currentUser }) {
             <CardDescription>A list of all users registered on this platform.</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="rounded-md border">
-              <Table>
+            <div className="rounded-md border overflow-x-auto">
+              <Table className="min-w-[600px] sm:min-w-full">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Name</TableHead>
@@ -245,10 +327,10 @@ export default function UserManagementView({ currentUser }) {
                       <TableCell className="text-muted-foreground">{u.phone || '—'}</TableCell>
                       <TableCell>
                         <Badge
-                          variant={u.role === "admin" ? "success" : "secondary"}
+                          variant={u.role === "admin" ? "success" : u.role === "trainee" ? "secondary" : "default"}
                           className="capitalize text-[10px]"
                         >
-                          {u.role === "admin" ? "Admin" : "Engineer"}
+                          {u.role === "admin" ? "Admin" : u.role === "trainee" ? "Trainee" : "Engineer"}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
@@ -289,6 +371,109 @@ export default function UserManagementView({ currentUser }) {
           </CardContent>
         </Card>
       </div>
+
+      {/* System Data Operations (Admin Only) */}
+      <Card className="shadow-sm border-l-4 border-l-amber-500 mt-6">
+        <CardHeader>
+          <CardTitle className="text-lg font-semibold flex items-center gap-2">
+            <Database className="w-5 h-5 text-amber-500" />
+            System Data Maintenance (Admin Only)
+          </CardTitle>
+          <CardDescription>
+            Extract checkout/booking records to Excel spreadsheet logs, or clear old transaction records from database within a specified date limit.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {systemSuccess && (
+            <div className="p-3 text-xs font-semibold text-emerald-600 bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex items-center gap-2 mb-4">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+              <span>{systemSuccess}</span>
+            </div>
+          )}
+          {systemError && (
+            <div className="p-3 text-xs font-semibold text-destructive bg-destructive/10 border border-destructive/20 rounded-lg flex items-center gap-2 mb-4">
+              <AlertCircle className="w-4 h-4 shrink-0 text-destructive" />
+              <span>{systemError}</span>
+            </div>
+          )}
+
+          <div className="grid gap-6 md:grid-cols-2">
+            {/* Extract Form */}
+            <div className="bg-muted/10 border rounded-lg p-4 space-y-4">
+              <div className="flex items-center gap-2 border-b pb-2">
+                <Download className="w-4 h-4 text-primary" />
+                <h3 className="font-semibold text-sm">Extract Booking Logs</h3>
+              </div>
+              <form onSubmit={handleExtract} className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="extractStart" className="text-xs">From Date</Label>
+                    <Input
+                      id="extractStart"
+                      type="date"
+                      value={extractStart}
+                      onChange={(e) => setExtractStart(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="extractEnd" className="text-xs">To Date</Label>
+                    <Input
+                      id="extractEnd"
+                      type="date"
+                      value={extractEnd}
+                      onChange={(e) => setExtractEnd(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+                <Button type="submit" className="w-full text-xs font-semibold mt-2 cursor-pointer">
+                  Generate & Download Excel
+                </Button>
+              </form>
+            </div>
+
+            {/* Clear Form */}
+            <div className="bg-destructive/5 border border-destructive/10 rounded-lg p-4 space-y-4">
+              <div className="flex items-center gap-2 border-b pb-2 border-destructive/10">
+                <AlertTriangle className="w-4 h-4 text-destructive" />
+                <h3 className="font-semibold text-sm text-destructive">Clear Transaction History</h3>
+              </div>
+              <form onSubmit={handleClear} className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="clearStart" className="text-xs text-destructive">From Date</Label>
+                    <Input
+                      id="clearStart"
+                      type="date"
+                      value={clearStart}
+                      onChange={(e) => setClearStart(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="clearEnd" className="text-xs text-destructive">To Date</Label>
+                    <Input
+                      id="clearEnd"
+                      type="date"
+                      value={clearEnd}
+                      onChange={(e) => setClearEnd(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <Button
+                  type="submit"
+                  variant={confirmClear ? "destructive" : "outline"}
+                  className={`w-full text-xs font-semibold mt-2 cursor-pointer transition-all ${
+                    confirmClear ? "bg-destructive text-white animate-pulse" : "text-destructive hover:bg-destructive/10 border-destructive/20"
+                  }`}
+                >
+                  {confirmClear ? "Click again to Confirm Permanent Clear" : "Clear History"}
+                </Button>
+              </form>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

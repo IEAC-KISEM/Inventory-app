@@ -8,22 +8,23 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table"
-import { Info, Download, ArrowUpDown, CheckCircle, XCircle, FileSpreadsheet, Layers } from "lucide-react"
+import { Info, Download, ArrowUpDown, CheckCircle, XCircle, FileSpreadsheet, Layers, Trash2 } from "lucide-react"
 
-export default function BookingView({ instruments, currentUserId, currentUserRole, loadAll, offerDownload }) {
+export default function BookingView({ instruments, searchTerm, currentUserId, currentUserRole, refreshKey, loadAll, offerDownload }) {
   const [selectedIds, setSelectedIds] = useState([])
   const [myBookings, setMyBookings] = useState([])
+  const [deleteConfirmKey, setDeleteConfirmKey] = useState(null)
 
   const loadMyBookings = async () => {
     try {
-      const res = await fetch("/api/bookings")
+      const res = await fetch("/api/bookings", { credentials: "include" })
       if (res.ok) {
         const data = await res.json()
-        if (currentUserRole === "admin") {
-          setMyBookings(data)
-        } else {
-          setMyBookings(data.filter(b => String(b.userId) === String(currentUserId)))
-        }
+        const filtered = currentUserRole === "admin"
+          ? data
+          : data.filter(b => String(b.userId) === String(currentUserId))
+        const sorted = filtered.sort((a, b) => new Date(b.startDate) - new Date(a.startDate))
+        setMyBookings(sorted)
       }
     } catch (err) {
       console.error("Failed to load bookings", err)
@@ -32,7 +33,30 @@ export default function BookingView({ instruments, currentUserId, currentUserRol
 
   useEffect(() => {
     loadMyBookings()
-  }, [currentUserId, currentUserRole, instruments])
+  }, [currentUserId, currentUserRole, instruments, refreshKey])
+
+  const handleDeleteHistory = async (key, isBulk) => {
+    if (deleteConfirmKey !== key) {
+      setDeleteConfirmKey(key)
+      return
+    }
+
+    try {
+      const endpoint = isBulk ? `/api/bookings/group/${key}` : `/api/bookings/${key}`
+      const res = await fetch(endpoint, { method: 'DELETE', credentials: 'include' })
+      const data = await res.json()
+      if (!res.ok) {
+        alert(data.error || 'Failed to delete transaction.')
+        return
+      }
+      setDeleteConfirmKey(null)
+      loadAll()
+      loadMyBookings()
+    } catch (err) {
+      console.error('History delete error', err)
+      alert('Unable to delete booking transaction.')
+    }
+  }
   
   // Modals Open State
   const [bookModalOpen, setBookModalOpen] = useState(false)
@@ -52,6 +76,8 @@ export default function BookingView({ instruments, currentUserId, currentUserRol
   
   // Pre-booking date state (for single and bulk pre-book)
   const [isPreBookMode, setIsPreBookMode] = useState(false)
+  const [useCustomDates, setCustomDates] = useState(false)
+  const [bulkUseCustomDates, setBulkUseCustomDates] = useState(false)
   const [preBookStartDate, setPreBookStartDate] = useState("")
   const [preBookEndDate, setPreBookEndDate] = useState("")
   const [bulkPreBookStartDate, setBulkPreBookStartDate] = useState("")
@@ -66,11 +92,28 @@ export default function BookingView({ instruments, currentUserId, currentUserRol
   // Compute today's date string for min attribute on date pickers
   const todayStr = new Date().toISOString().split("T")[0]
 
+  const isDueSoon = (dateStr) => {
+    if (!dateStr) return false
+    const dueMs = new Date(dateStr) - new Date()
+    return dueMs < 7 * 24 * 3600 * 1000
+  }
+
+  const filteredInstruments = instruments.filter(it => {
+    const term = (searchTerm || "").toLowerCase()
+    return (
+      it.name?.toLowerCase().includes(term) ||
+      it.model?.toLowerCase().includes(term) ||
+      it.serial?.toLowerCase().includes(term) ||
+      it.category?.toLowerCase().includes(term) ||
+      it.status?.toLowerCase().includes(term)
+    )
+  })
+
   const handleSelectAll = () => {
-    if (selectedIds.length === instruments.length) {
+    if (selectedIds.length === filteredInstruments.length) {
       setSelectedIds([])
     } else {
-      setSelectedIds(instruments.map(i => i.id))
+      setSelectedIds(filteredInstruments.map(i => i.id))
     }
   }
 
@@ -85,6 +128,7 @@ export default function BookingView({ instruments, currentUserId, currentUserRol
     const prebook = it.status !== "available"
     setTargetInstrument(it)
     setIsPreBookMode(prebook)
+    setCustomDates(prebook)
     setBookDays("7")
     setBookRemarks("")
     // Default dates for pre-booking: tomorrow onward for 7 days
@@ -101,10 +145,10 @@ export default function BookingView({ instruments, currentUserId, currentUserRol
     e.preventDefault()
     if (!targetInstrument) return
 
-    // Validate pre-book dates
-    if (isPreBookMode) {
+    // Validate dates if custom dates are used
+    if (useCustomDates) {
       if (!preBookStartDate || !preBookEndDate) {
-        alert("Please select both a start and end date for pre-booking.")
+        alert("Please select both a start and end date.")
         return
       }
       if (new Date(preBookEndDate) <= new Date(preBookStartDate)) {
@@ -119,7 +163,7 @@ export default function BookingView({ instruments, currentUserId, currentUserRol
         instrumentId: targetInstrument.id,
         remarks: bookRemarks
       }
-      if (isPreBookMode) {
+      if (useCustomDates) {
         body.startDate = new Date(preBookStartDate).toISOString()
         body.endDate = new Date(preBookEndDate + "T23:59:59").toISOString()
       } else {
@@ -403,8 +447,9 @@ export default function BookingView({ instruments, currentUserId, currentUserRol
         </CardHeader>
         <CardContent className="pt-6">
           <div className="space-y-3">
-            {instruments.map(it => {
+            {filteredInstruments.map(it => {
               const isSelected = selectedIds.includes(it.id)
+              const imageUrl = Array.isArray(it.productImages) && it.productImages[0]
               return (
                 <div 
                   key={it.id} 
@@ -412,11 +457,16 @@ export default function BookingView({ instruments, currentUserId, currentUserRol
                     isSelected ? "bg-primary/5 border-primary/40 shadow-sm" : "hover:bg-accent/40"
                   }`}
                 >
-                  <div className="flex items-center gap-3 w-full sm:w-auto">
+                  <div className="flex items-start gap-3 w-full sm:w-auto">
                     <Checkbox 
                       checked={isSelected} 
                       onChange={() => handleSelectRow(it.id)} 
                     />
+                    {imageUrl ? (
+                      <img src={imageUrl} alt={it.name} className="h-14 w-14 rounded-xl object-cover border" />
+                    ) : (
+                      <div className="h-14 w-14 rounded-xl bg-muted flex items-center justify-center text-xs text-muted-foreground">No image</div>
+                    )}
                     <div className="space-y-1 min-w-0">
                       <div className="font-semibold text-sm truncate max-w-[280px] sm:max-w-md md:max-w-lg" title={`${it.name} ${it.model}`}>
                         {it.name} {it.model} <span className="font-mono text-xs text-muted-foreground">({it.serial})</span>
@@ -429,6 +479,12 @@ export default function BookingView({ instruments, currentUserId, currentUserRol
                           {it.status}
                         </Badge>
                         
+                        {isDueSoon(it.nextCalibrationDate) && (
+                          <Badge variant="destructive" className="text-[10px] py-0 px-2 font-semibold animate-pulse">
+                            Calibration Due
+                          </Badge>
+                        )}
+                        
                         {/* Live active booking details */}
                         {it.status === "booked" && it.bookedBy && (
                           <span className="text-xs text-amber-600 bg-amber-500/5 px-2 py-0.5 rounded border border-amber-500/10 font-medium">
@@ -440,6 +496,13 @@ export default function BookingView({ instruments, currentUserId, currentUserRol
                         {it.futureBookings && it.futureBookings.length > 0 && (
                           <span className="text-xs text-indigo-600 bg-indigo-500/5 px-2 py-0.5 rounded border border-indigo-500/10 font-medium">
                             Queue: {it.futureBookings.length} pre-booking(s)
+                          </span>
+                        )}
+
+                        {it.nextBooking && (
+                          <span className="text-xs text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 font-medium">
+                            Next {it.nextBooking.status === 'approved' ? 'pre-booking' : 'request'}:
+                            {' '}{new Date(it.nextBooking.startDate).toLocaleDateString()}–{new Date(it.nextBooking.dueDate).toLocaleDateString()} by <strong>{it.nextBooking.userName}</strong>
                           </span>
                         )}
 
@@ -811,141 +874,104 @@ export default function BookingView({ instruments, currentUserId, currentUserRol
         </DialogContent>
       </Dialog>
 
-      {/* Requests and Booking History Section */}
-      {(() => {
-        // Group bookings: bulk entries sharing a bulkGroupId → one row; singles → one row each
-        const groups = {};
-        const order = []; // preserve insertion order for display
-        for (const b of myBookings) {
-          const key = b.bulkGroupId || b.id;
-          if (!groups[key]) {
-            groups[key] = [];
-            order.push(key);
-          }
-          groups[key].push(b);
-        }
-        const rows = order.map(key => {
-          const bookings = groups[key];
-          const first = bookings[0];
-          const isBulk = !!first.bulkGroupId;
-          // For a bulk group, find any approved sheetUrl (all share the same url once approved)
-          const sheetUrl = bookings.find(b => b.sheetUrl)?.sheetUrl || null;
-          return { key, isBulk, bookings, first, sheetUrl };
-        });
-
-        return (
-          <Card className="shadow-sm mt-8 border-l-4 border-l-primary">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                <FileSpreadsheet className="w-5 h-5 text-primary" />
-                {currentUserRole === "admin" ? "All Booking History & Logs" : "My Bookings & Requests"}
-              </CardTitle>
-              <CardDescription>Track status of checkout requests and download authorised Excel log sheets.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="rounded-md border overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Instrument(s)</TableHead>
-                      {currentUserRole === "admin" && <TableHead>Booked By</TableHead>}
-                      <TableHead>Period</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Notes</TableHead>
-                      <TableHead className="text-right">Spreadsheet</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {rows.map(({ key, isBulk, bookings, first, sheetUrl }) => {
-                      const status = first.status || "approved";
-                      const start = new Date(first.startDate).toLocaleDateString();
-                      const due = new Date(first.dueDate).toLocaleDateString();
-                      return (
-                        <TableRow key={key} className="hover:bg-accent/20 align-top">
-                          {/* Instrument(s) column */}
-                          <TableCell className="font-semibold text-foreground">
-                            {isBulk ? (
-                              <div>
-                                <div className="flex items-center gap-1 text-xs font-semibold text-primary mb-1">
-                                  <Layers className="w-3.5 h-3.5" />
-                                  Bulk — {bookings.length} instruments
-                                </div>
-                                <ul className="space-y-0.5">
-                                  {bookings.map(b => (
-                                    <li key={b.id} className="text-[11px] text-muted-foreground leading-snug">
-                                      <span className="font-medium text-foreground">{b.instrumentName}</span>
-                                      {" "}
-                                      <span className="font-mono">({b.instrumentSerial})</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
+      <Card className="shadow-sm mt-8 border-l-4 border-l-primary">
+        <CardHeader>
+          <CardTitle className="text-lg font-semibold flex items-center gap-2">
+            <FileSpreadsheet className="w-5 h-5 text-primary" />
+            {currentUserRole === "admin" ? "Recent Transaction History" : "My Recent Transactions"}
+          </CardTitle>
+          <CardDescription>Showing the 10 most recent booking and return transactions for quick lookup.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="rounded-md border overflow-x-auto">
+            <Table className="min-w-[700px] sm:min-w-full">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Instrument</TableHead>
+                  {currentUserRole === "admin" && <TableHead>Booked By</TableHead>}
+                  <TableHead>Period</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Notes</TableHead>
+                  <TableHead className="text-right">Sheet</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {myBookings.slice(0, 10).map(first => {
+                  const status = first.status || "approved";
+                  const start = new Date(first.startDate).toLocaleDateString();
+                  const due = new Date(first.dueDate).toLocaleDateString();
+                  const sheetUrl = first.sheetUrl || null;
+                  return (
+                    <TableRow key={first.id} className="hover:bg-accent/20 align-top">
+                      <TableCell className="font-semibold text-foreground">
+                        <div className="flex items-center gap-2">
+                          <div className="h-10 w-10 rounded-xl overflow-hidden bg-muted flex items-center justify-center border">
+                            {first.instrumentImage ? (
+                              <img src={first.instrumentImage} alt={first.instrumentName} className="h-full w-full object-cover" />
                             ) : (
-                              <div>
-                                <div>{first.instrumentName}</div>
-                                <div className="text-[10px] text-muted-foreground font-mono">
-                                  {first.instrumentModel} ({first.instrumentSerial})
-                                </div>
-                              </div>
+                              <span className="text-[10px] text-muted-foreground">No image</span>
                             )}
-                          </TableCell>
-                          {currentUserRole === "admin" && (
-                            <TableCell className="text-sm font-medium">{first.userName || "N/A"}</TableCell>
-                          )}
-                          <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                            {start} – {due}
-                          </TableCell>
-                          <TableCell>
-                            <Badge
-                              variant={
-                                status === "approved" ? "success"
-                                  : status === "pending" ? "warning"
+                          </div>
+                          <div>
+                            <div>{first.instrumentName}</div>
+                            <div className="text-[10px] text-muted-foreground font-mono">
+                              {first.instrumentModel} ({first.instrumentSerial})
+                            </div>
+                          </div>
+                        </div>
+                      </TableCell>
+                      {currentUserRole === "admin" && (
+                        <TableCell className="text-sm font-medium">{first.userName || "N/A"}</TableCell>
+                      )}
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                        {start} – {due}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={
+                            first.returnedDate ? "secondary"
+                              : status === "approved" ? "success"
+                                : status === "pending" ? "warning"
                                   : "destructive"
-                              }
-                              className="capitalize text-[10px]"
-                            >
-                              {status === "pending" ? "Pending Approval" : status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="max-w-[150px] truncate text-xs text-muted-foreground" title={first.remarks}>
-                            {first.remarks || <span className="text-muted-foreground/30 italic">No notes</span>}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {status === "approved" && sheetUrl ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-8 flex items-center gap-1.5 text-primary hover:text-primary font-semibold border-primary/20 hover:border-primary/50 hover:bg-primary/5 cursor-pointer"
-                                onClick={() => offerDownload(sheetUrl)}
-                              >
-                                <Download className="w-3.5 h-3.5" />
-                                <span>XLSX</span>
-                              </Button>
-                            ) : status === "pending" ? (
-                              <span className="text-[11px] text-muted-foreground/60 italic font-medium">Awaiting Approval</span>
-                            ) : status === "denied" ? (
-                              <span className="text-[11px] text-destructive/70 italic font-medium">Denied</span>
-                            ) : (
-                              <span className="text-[11px] text-muted-foreground/40 italic">Not available</span>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                    {rows.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={currentUserRole === "admin" ? 6 : 5} className="text-center py-6 text-muted-foreground">
-                          No requests or checkouts registered.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
-        );
-      })()}
+                          }
+                          className="capitalize text-[10px]"
+                        >
+                          {first.returnedDate ? "Returned" : status === "pending" ? "Pending Approval" : status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="max-w-[150px] truncate text-xs text-muted-foreground" title={first.remarks}>
+                        {first.remarks || <span className="text-muted-foreground/30 italic">No notes</span>}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {sheetUrl ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 flex items-center gap-1.5 text-primary hover:text-primary font-semibold border-primary/20 hover:border-primary/50 hover:bg-primary/5 cursor-pointer"
+                            onClick={() => offerDownload(sheetUrl)}
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>XLSX</span>
+                          </Button>
+                        ) : (
+                          <span className="text-[11px] text-muted-foreground/60 italic">No sheet</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                {myBookings.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={currentUserRole === "admin" ? 6 : 5} className="text-center py-6 text-muted-foreground">
+                      No recent transaction records available.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

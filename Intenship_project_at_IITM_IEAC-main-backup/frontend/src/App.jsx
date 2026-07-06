@@ -3,12 +3,14 @@ import { io } from "socket.io-client"
 import DashboardView from "./components/DashboardView"
 import InventoryView from "./components/InventoryView"
 import BookingView from "./components/BookingView"
+import TransactionView from "./components/TransactionView"
 import CalibrationView from "./components/CalibrationView"
 import LearningView from "./components/LearningView"
 import LoginView from "./components/LoginView"
 import UserManagementView from "./components/UserManagementView"
 import BookingRequestsView from "./components/BookingRequestsView"
 import CalendarView from "./components/CalendarView"
+import VendorManagementView from "./components/VendorManagementView"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
@@ -29,7 +31,11 @@ import {
   ShieldCheck,
   Users,
   LogOut,
-  CalendarDays
+  CalendarDays,
+  Menu,
+  X,
+  Layers,
+  Handshake
 } from "lucide-react"
 
 // Connect to socket.io
@@ -46,21 +52,40 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState("")
   const [darkMode, setDarkMode] = useState(false)
   const [socketConnected, setSocketConnected] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   // Socket notification modal
   const [insightModalOpen, setInsightModalOpen] = useState(false)
   const [insightLines, setInsightLines] = useState([])
+  const [refreshBookingsKey, setRefreshBookingsKey] = useState(0)
+  const [pendingRequestsCount, setPendingRequestsCount] = useState(0)
+
+  const loadPendingRequestsCount = async () => {
+    if (!currentUser || (currentUser.role || "").toLowerCase() !== "admin") return;
+    try {
+      const res = await fetch("/api/booking-requests")
+      if (res.ok) {
+        const data = await res.json()
+        setPendingRequestsCount(data.length)
+      }
+    } catch (err) {
+      console.error("Failed to load booking requests count", err)
+    }
+  }
 
   const currentUserId = currentUser ? currentUser.id : ""
 
   const handleLoginSuccess = (user) => {
     localStorage.setItem("iitm_user", JSON.stringify(user))
     setCurrentUser(user)
-    setActiveView("dashboard")
+    setActiveView(user.role === "trainee" ? "learning" : "dashboard")
     window.location.href = "/" // Clean reload to clear lag
   }
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/logout", { method: "POST" })
+    } catch (_) {}
     localStorage.removeItem("iitm_user")
     setCurrentUser(null)
     setActiveView("dashboard")
@@ -74,6 +99,10 @@ export default function App() {
       if (res.ok) {
         const data = await res.json()
         setInstruments(data)
+      } else if (res.status === 401 || res.status === 403) {
+        // Session expired or stale localStorage — force re-login
+        localStorage.removeItem("iitm_user")
+        setCurrentUser(null)
       }
     } catch (err) {
       console.error("Failed to load instruments", err)
@@ -86,6 +115,9 @@ export default function App() {
       if (res.ok) {
         const data = await res.json()
         setUsers(data)
+      } else if (res.status === 401 || res.status === 403) {
+        localStorage.removeItem("iitm_user")
+        setCurrentUser(null)
       }
     } catch (err) {
       console.error("Failed to load users", err)
@@ -94,6 +126,7 @@ export default function App() {
 
   const loadAll = () => {
     loadInstruments()
+    loadPendingRequestsCount()
   }
 
   // Load initial data on mount
@@ -101,15 +134,14 @@ export default function App() {
     if (currentUser) {
       loadUsers()
       loadInstruments()
+      loadPendingRequestsCount()
     }
   }, [currentUser])
 
-  if (!currentUser) {
-    return <LoginView onLoginSuccess={handleLoginSuccess} />
-  }
-
   // Sync socket listeners when active operator (currentUserId) changes
   useEffect(() => {
+    if (!currentUser) return
+
     // Socket listeners
     socket.on("connect", () => {
       setSocketConnected(true)
@@ -139,13 +171,19 @@ export default function App() {
       }
     })
 
+    socket.on("bookings", () => {
+      setRefreshBookingsKey(prev => prev + 1)
+      loadPendingRequestsCount()
+    })
+
     return () => {
       socket.off("connect")
       socket.off("disconnect")
       socket.off("instruments")
       socket.off("insight")
+      socket.off("bookings")
     }
-  }, [currentUserId])
+  }, [currentUserId, currentUser])
 
   // Toggle theme class on body
   useEffect(() => {
@@ -156,6 +194,10 @@ export default function App() {
     }
   }, [darkMode])
 
+  if (!currentUser) {
+    return <LoginView onLoginSuccess={handleLoginSuccess} />
+  }
+
   // Booking Excel sheet download helper
   // Uses fetch + blob approach to guarantee the .xlsx extension is preserved
   // regardless of how individual browsers handle Content-Disposition headers
@@ -165,7 +207,7 @@ export default function App() {
       const fileName = filePath.split("/").pop() || "booking.xlsx"
       // Ensure the filename always ends with .xlsx
       const safeFileName = fileName.endsWith(".xlsx") ? fileName : fileName + ".xlsx"
-      const res = await fetch(filePath)
+      const res = await fetch(filePath, { credentials: "include" })
       if (!res.ok) {
         console.error("Download failed, server returned:", res.status)
         // Fallback: open the download URL directly in a new tab
@@ -205,6 +247,7 @@ export default function App() {
           <InventoryView
             instruments={instruments}
             searchTerm={searchTerm}
+            currentUserRole={currentUser ? currentUser.role : "engineer"}
             loadAll={loadAll}
           />
         )
@@ -212,8 +255,10 @@ export default function App() {
         return (
           <BookingView
             instruments={instruments}
+            searchTerm={searchTerm}
             currentUserId={currentUserId}
             currentUserRole={currentUser ? currentUser.role : "engineer"}
+            refreshKey={refreshBookingsKey}
             loadAll={loadAll}
             offerDownload={offerDownload}
           />
@@ -227,45 +272,62 @@ export default function App() {
           />
         )
       case "booking-requests":
-        return <BookingRequestsView offerDownload={offerDownload} />
+        return <BookingRequestsView offerDownload={offerDownload} loadPendingRequestsCount={loadPendingRequestsCount} />
       case "user-management":
-        return <UserManagementView currentUser={currentUser} />
+        return <UserManagementView currentUser={currentUser} offerDownload={offerDownload} />
+      case "vendor-management":
+        return <VendorManagementView currentUserRole={currentUser ? currentUser.role.toLowerCase() : "engineer"} />
+      case "transaction":
+        return <TransactionView currentUser={currentUser} offerDownload={offerDownload} refreshKey={refreshBookingsKey} />
       case "calendar":
-        return <CalendarView />
+        return <CalendarView refreshKey={refreshBookingsKey} />
       case "learning":
       default:
         return <LearningView instruments={instruments} />
     }
   }
 
+  const role = (currentUser ? currentUser.role : "engineer").toLowerCase()
   const navItems = [
     { id: "dashboard", label: "Dashboard", icon: <LayoutDashboard className="w-4 h-4" /> },
-    { id: "inventory", label: "Inventory", icon: <Boxes className="w-4 h-4" /> },
-    { id: "booking", label: "Booking / Return", icon: <CalendarClock className="w-4 h-4" /> },
-    { id: "calendar", label: "Calendar", icon: <CalendarDays className="w-4 h-4" /> },
-    { id: "calibration", label: "Calibration", icon: <Activity className="w-4 h-4" /> },
-    ...(currentUser && currentUser.role === "admin"
-      ? [
-          { id: "booking-requests", label: "Booking Requests", icon: <ShieldCheck className="w-4 h-4" /> },
-          { id: "user-management", label: "User Management", icon: <Users className="w-4 h-4" /> }
-        ]
-      : []),
+    ...(role !== "trainee" ? [
+      { id: "inventory", label: "Inventory", icon: <Boxes className="w-4 h-4" /> },
+      { id: "booking", label: "Booking / Return", icon: <CalendarClock className="w-4 h-4" /> },
+      { id: "vendor-management", label: "Vendor Management", icon: <Handshake className="w-4 h-4" /> },
+      { id: "transaction", label: "Transactions", icon: <Layers className="w-4 h-4" /> },
+      { id: "calendar", label: "Calendar", icon: <CalendarDays className="w-4 h-4" /> },
+      { id: "calibration", label: "Calibration", icon: <Activity className="w-4 h-4" /> }
+    ] : []),
+    ...(role === "admin" ? [
+      { id: "booking-requests", label: "Booking Requests", icon: <ShieldCheck className="w-4 h-4" /> },
+      { id: "user-management", label: "User Management", icon: <Users className="w-4 h-4" /> }
+    ] : []),
     { id: "learning", label: "Learning Center", icon: <GraduationCap className="w-4 h-4" /> },
   ]
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background font-sans text-foreground">
+    <div className="flex h-screen overflow-hidden bg-background font-sans text-foreground relative">
+      {/* Mobile sidebar backdrop */}
+      {mobileMenuOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/45 lg:hidden transition-opacity"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
       {/* Sidebar navigation */}
-      <aside className="w-64 border-r bg-card flex flex-col justify-between shrink-0">
+      <aside className={`fixed inset-y-0 left-0 z-50 w-64 border-r bg-card flex flex-col justify-between shrink-0 transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 ${
+        mobileMenuOpen ? "translate-x-0" : "-translate-x-full lg:flex"
+      }`}>
         <div>
           {/* Brand header */}
           <div className="h-16 flex items-center justify-between px-4 border-b bg-muted/20 gap-2">
             <div className="flex items-center gap-1.5 shrink-0">
               <img src="https://lh3.googleusercontent.com/d/1Y1tT7mrE-ntA-cY5xpewNdIp3sGXxO6F" alt="IITM Logo" className="h-8 w-auto object-contain bg-white rounded p-0.5" />
-              <img src="https://lh3.googleusercontent.com/d/1_h0FAF9gosStf26KKGPOqPBdGozZdPCr" alt="IEAS Logo" className="h-8 w-auto object-contain bg-white rounded p-0.5" />
+              <img src="https://lh3.googleusercontent.com/d/1_h0FAF9gosStf26KKGPOqPBdGozZdPCr" alt="IEAC Logo" className="h-8 w-auto object-contain bg-white rounded p-0.5" />
             </div>
             <div className="flex flex-col text-right justify-center min-w-0">
-              <div className="font-semibold text-xs leading-none text-foreground truncate">IITM IEAS</div>
+              <div className="font-semibold text-xs leading-none text-foreground truncate">IITM IEAC</div>
               <div className="text-[9px] text-muted-foreground font-medium mt-0.5 truncate">Asset Management</div>
             </div>
           </div>
@@ -279,8 +341,9 @@ export default function App() {
                   key={item.id}
                   onClick={() => {
                     setActiveView(item.id)
-                    // Clear search on view change unless relevant
-                    if (item.id !== "inventory") setSearchTerm("")
+                    // Clear search only when leaving search-enabled views
+                    if (item.id !== "inventory" && item.id !== "booking") setSearchTerm("")
+                    setMobileMenuOpen(false) // Close mobile menu drawer on click
                   }}
                   className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${active
                       ? "bg-primary text-primary-foreground shadow-sm font-semibold"
@@ -288,7 +351,10 @@ export default function App() {
                     }`}
                 >
                   {item.icon}
-                  {item.label}
+                  <span className="flex-1 text-left">{item.label}</span>
+                  {item.id === "booking-requests" && pendingRequestsCount > 0 && (
+                    <span className="w-2.5 h-2.5 rounded-full bg-red-500 ring-4 ring-red-500/20 shrink-0" />
+                  )}
                 </button>
               )
             })}
@@ -324,21 +390,34 @@ export default function App() {
       {/* Main panel container */}
       <div className="flex flex-col flex-1 min-w-0">
         {/* Top Header controls */}
-        <header className="h-16 border-b bg-card flex items-center justify-between px-6 shrink-0">
-          {/* Search bar */}
-          <div className="relative w-64 md:w-80">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              type="text"
-              placeholder="Search assets..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 h-9 w-full bg-muted/40 hover:bg-muted/65 focus:bg-background transition-all"
-            />
+        <header className="h-16 border-b bg-card flex items-center justify-between px-4 sm:px-6 shrink-0 gap-3">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            {/* Hamburger menu button for small screens */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="lg:hidden h-9 w-9 shrink-0 text-muted-foreground hover:bg-muted"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            >
+              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </Button>
+
+            {(activeView === "inventory" || activeView === "booking") && (
+              <div className="relative w-full max-w-xs sm:max-w-sm">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder={activeView === "booking" ? "Search booked or available instruments..." : "Search assets..."}
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-9 h-9 w-full bg-muted/40 hover:bg-muted/65 focus:bg-background transition-all"
+                />
+              </div>
+            )}
           </div>
 
           {/* Logged in User Profile & Logout */}
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4 shrink-0">
             <div className="hidden sm:flex flex-col text-right">
               <span className="text-xs font-semibold text-foreground">
                 {currentUser ? currentUser.name : "Guest"}
@@ -365,7 +444,7 @@ export default function App() {
         </header>
 
         {/* View content panel */}
-        <main className="flex-1 overflow-y-auto p-6 bg-background/50">
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 bg-background/50">
           <div className="max-w-6xl mx-auto">
             {renderCurrentView()}
           </div>

@@ -3,7 +3,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Button } from "@/components/ui/button"
 import { ChevronLeft, ChevronRight, Calendar, User, Info, Layers } from "lucide-react"
 
-export default function CalendarView() {
+export default function CalendarView({ refreshKey }) {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [bookings, setBookings] = useState([])
   const [selectedDayBookings, setSelectedDayBookings] = useState(null)
@@ -23,7 +23,7 @@ export default function CalendarView() {
 
   useEffect(() => {
     loadBookings()
-  }, [])
+  }, [refreshKey])
 
   const year = currentDate.getFullYear()
   const month = currentDate.getMonth()

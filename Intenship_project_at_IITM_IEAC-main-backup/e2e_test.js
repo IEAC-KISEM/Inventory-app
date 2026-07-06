@@ -20,10 +20,10 @@
     // pick first and new one
     const ids = [inst[0].id, newInst.id];
     console.log('booking ids', ids);
-    res = await fetch(base+'/api/book/bulk',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({userId:1,instrumentIds: ids, days:5, remarks:'e2e test'})});
+    res = await fetch(base+'/api/book/bulk',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({userId:'Dk0II5a6',instrumentIds: ids, days:5, remarks:'e2e test'})});
     j = await res.json(); console.log('book result', j);
     if(j.sheet){
-      const filename = j.sheet.replace(/^\//,'');
+      const filename = path.basename(j.sheet);
       const fp = path.join(__dirname,'public',filename);
       console.log('file exists', fs.existsSync(fp), fp);
       const wb = new ExcelJS.Workbook();

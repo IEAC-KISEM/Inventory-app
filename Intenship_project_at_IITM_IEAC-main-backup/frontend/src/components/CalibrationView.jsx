@@ -120,7 +120,7 @@ export default function CalibrationView({ instruments, currentUserId, loadAll })
                   </div>
                 </div>
 
-                <div className="flex gap-2 shrink-0 md:justify-end">
+                <div className="flex flex-wrap gap-2 shrink-0 md:justify-end">
                   <Button 
                     variant="outline" 
                     size="sm" 

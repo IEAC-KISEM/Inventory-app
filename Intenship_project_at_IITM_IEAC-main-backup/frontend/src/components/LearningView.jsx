@@ -1,4 +1,4 @@
-import React, { useState } from "react"
+import React, { useState, useMemo } from "react"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -19,6 +19,49 @@ export default function LearningView({ instruments }) {
     return Array.isArray(it.productImages) ? it.productImages.filter(Boolean) : []
   }
 
+  // Deduplicate instruments by brand + model for the learning view.
+  // Merge learning fields from ALL instances so no seeded data is lost.
+  const uniqueInstruments = useMemo(() => {
+    const learningFields = [
+      'productOverview', 'specifications', 'parametersMeasured',
+      'accuracy', 'measurementRange', 'resolution',
+      'applications', 'operatingProcedure', 'calibrationProcedure',
+      'safetyInstructions', 'productImages', 'userManualUrl', 'youtubeUrl'
+    ]
+
+    const groups = {}
+    for (const inst of instruments) {
+      const key = ((inst.brand || '') + '|||' + (inst.model || '')).toLowerCase()
+      if (!groups[key]) groups[key] = []
+      groups[key].push(inst)
+    }
+
+    return Object.values(groups).map(group => {
+      // Start from first item, then merge any missing fields from others
+      const merged = { ...group[0] }
+      for (let i = 1; i < group.length; i++) {
+        const other = group[i]
+        for (const field of learningFields) {
+          const mVal = merged[field]
+          const oVal = other[field]
+          const mEmpty = !mVal || (Array.isArray(mVal) && mVal.length === 0) || (typeof mVal === 'string' && mVal.trim() === '')
+          const oHas = oVal && (Array.isArray(oVal) ? oVal.length > 0 : String(oVal).trim() !== '')
+          if (mEmpty && oHas) {
+            merged[field] = oVal
+          }
+          // For productImages, concatenate unique images from all instances
+          if (field === 'productImages' && oHas) {
+            const existing = Array.isArray(merged.productImages) ? merged.productImages : []
+            const extra = Array.isArray(oVal) ? oVal : []
+            merged.productImages = [...new Set([...existing, ...extra])]
+          }
+        }
+      }
+      merged._unitCount = group.length
+      return merged
+    })
+  }, [instruments])
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* Hero Banner */}
@@ -31,7 +74,7 @@ export default function LearningView({ instruments }) {
         </p>
       </div>
 
-      {instruments.length === 0 ? (
+      {uniqueInstruments.length === 0 ? (
         <Card className="border-dashed py-12">
           <CardContent className="flex flex-col items-center justify-center space-y-3">
             <Compass className="w-12 h-12 text-muted-foreground stroke-1" />
@@ -43,7 +86,7 @@ export default function LearningView({ instruments }) {
       ) : (
         /* Instruments Previews Grid */
         <div className="grid gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-          {instruments.map(it => {
+          {uniqueInstruments.map(it => {
             const images = getImages(it)
             const hasImage = images.length > 0
             
@@ -64,7 +107,12 @@ export default function LearningView({ instruments }) {
                   ) : (
                     <Compass className="w-8 h-8 text-muted-foreground/50 stroke-1" />
                   )}
-                  <div className="absolute top-2 right-2">
+                  <div className="absolute top-2 right-2 flex gap-1">
+                    {it._unitCount > 1 && (
+                      <Badge variant="outline" className="backdrop-blur-md bg-background/80 text-[10px] py-0 px-2 font-bold">
+                        {it._unitCount} units
+                      </Badge>
+                    )}
                     <Badge variant="secondary" className="backdrop-blur-md bg-background/80 text-[10px] py-0 px-2 uppercase tracking-wider font-semibold">
                       {it.category || "Instrument"}
                     </Badge>
@@ -77,7 +125,7 @@ export default function LearningView({ instruments }) {
                       {it.name}
                     </h3>
                     <p className="text-xs text-muted-foreground font-mono truncate">
-                      {it.model || "Model not set"}
+                      {it.brand ? `${it.brand} — ` : ""}{it.model || "Model not set"}
                     </p>
                   </div>
                 </CardContent>

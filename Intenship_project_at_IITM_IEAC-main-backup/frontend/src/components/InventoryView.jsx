@@ -9,12 +9,12 @@ import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Plus, Edit3, Trash2, ArrowLeft, HelpCircle } from "lucide-react"
 
-export default function InventoryView({ instruments, searchTerm, loadAll }) {
+export default function InventoryView({ instruments, searchTerm, currentUserRole, loadAll }) {
   const [formOpen, setFormOpen] = useState(false)
   const [editingInstrument, setEditingInstrument] = useState(null)
   const [activeFormTab, setActiveFormTab] = useState("general")
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
-  const [deletingId, setDeletingId] = useState(null)
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null)
+  const [slideVal, setSlideVal] = useState(0)
 
   // Form State
   const initialFormState = {
@@ -104,15 +104,22 @@ export default function InventoryView({ instruments, searchTerm, loadAll }) {
 
   // Delete handlers
   const promptDelete = (id) => {
-    setDeletingId(id)
-    setDeleteConfirmOpen(true)
+    setDeleteConfirmId(id)
+    setSlideVal(0)
+  }
+
+  const cancelDelete = () => {
+    setDeleteConfirmId(null)
+    setSlideVal(0)
   }
 
   const handleDelete = async () => {
+    if (!deleteConfirmId) return
     try {
-      const res = await fetch(`/api/instruments/${deletingId}`, { method: "DELETE" })
+      const res = await fetch(`/api/instruments/${deleteConfirmId}`, { method: "DELETE" })
       if (res.ok) {
-        setDeleteConfirmOpen(false)
+        setDeleteConfirmId(null)
+        setSlideVal(0)
         loadAll()
       } else {
         alert("Failed to delete instrument.")
@@ -283,20 +290,22 @@ export default function InventoryView({ instruments, searchTerm, loadAll }) {
   // Render Inventory Table
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Inventory</h1>
           <p className="text-muted-foreground">Manage and track registered laboratory assets.</p>
         </div>
-        <Button onClick={handleOpenAddForm} className="gap-2">
-          <Plus className="w-4 h-4" /> Add Instrument
-        </Button>
+        {currentUserRole === 'admin' && (
+          <Button onClick={handleOpenAddForm} className="gap-2 w-full sm:w-auto justify-center">
+            <Plus className="w-4 h-4" /> Add Instrument
+          </Button>
+        )}
       </div>
 
       <Card>
         <CardContent className="pt-6">
-          <div className="rounded-md border">
-            <Table>
+          <div className="rounded-md border overflow-x-auto">
+            <Table className="min-w-[650px] sm:min-w-full">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[80px]">SNo</TableHead>
@@ -337,22 +346,79 @@ export default function InventoryView({ instruments, searchTerm, loadAll }) {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right space-x-1">
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          onClick={() => handleOpenEditForm(it)}
-                          className="hover:text-primary"
-                        >
-                          <Edit3 className="w-3.5 h-3.5 mr-1" /> Edit
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          onClick={() => promptDelete(it.id)}
-                          className="hover:text-destructive text-muted-foreground"
-                        >
-                          <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete
-                        </Button>
+                        {currentUserRole === 'admin' ? (
+                          deleteConfirmId === it.id ? (
+                            <div className="inline-flex items-center justify-end gap-2 animate-in fade-in duration-200">
+                              <div className="relative flex items-center bg-destructive/15 border border-destructive/35 rounded-full h-8 w-44 overflow-hidden shadow-inner">
+                                <input
+                                  type="range"
+                                  min="0"
+                                  max="100"
+                                  value={slideVal}
+                                  onChange={(e) => {
+                                    const val = parseInt(e.target.value, 10)
+                                    setSlideVal(val)
+                                    if (val >= 100) {
+                                      handleDelete()
+                                    }
+                                  }}
+                                  onMouseUp={() => {
+                                    if (slideVal < 100) setSlideVal(0)
+                                  }}
+                                  onTouchEnd={() => {
+                                    if (slideVal < 100) setSlideVal(0)
+                                  }}
+                                  className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize z-20"
+                                />
+                                <div 
+                                  className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-destructive select-none pointer-events-none transition-opacity duration-150"
+                                  style={{ opacity: Math.max(0, 1 - slideVal / 50) }}
+                                >
+                                  Slide to Delete →
+                                </div>
+                                <div 
+                                  className="absolute left-0 top-0 bottom-0 bg-destructive/20 rounded-full transition-all duration-75 pointer-events-none"
+                                  style={{ width: `${Math.max(12, slideVal)}%` }}
+                                />
+                                <div 
+                                  className="absolute top-1 bottom-1 w-6 h-6 rounded-full bg-destructive flex items-center justify-center text-white shadow-md pointer-events-none transition-all duration-75"
+                                  style={{ left: `calc(${slideVal}% - ${slideVal * 0.24}px + 4px)` }}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </div>
+                              </div>
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                onClick={cancelDelete}
+                                className="h-8 text-xs font-semibold cursor-pointer"
+                              >
+                                  Cancel
+                              </Button>
+                            </div>
+                          ) : (
+                            <>
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                onClick={() => handleOpenEditForm(it)}
+                                className="hover:text-primary"
+                              >
+                                <Edit3 className="w-3.5 h-3.5 mr-1" /> Edit
+                              </Button>
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                onClick={() => promptDelete(it.id)}
+                                className="hover:text-destructive text-muted-foreground"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete
+                              </Button>
+                            </>
+                          )
+                        ) : (
+                          <span className="text-[11px] text-muted-foreground italic">Admin only</span>
+                        )}
                       </TableCell>
                     </TableRow>
                   )
@@ -370,25 +436,6 @@ export default function InventoryView({ instruments, searchTerm, loadAll }) {
         </CardContent>
       </Card>
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Are you absolutely sure?</DialogTitle>
-            <DialogDescription>
-              This action cannot be undone. This will permanently delete the instrument and remove all booking associations.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={handleDelete}>
-              Confirm Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
