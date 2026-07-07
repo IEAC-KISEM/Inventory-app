@@ -21,20 +21,40 @@ if (supabaseUrl && supabaseAnonKey) {
     'and VITE_SUPABASE_ANON_KEY / SUPABASE_ANON_KEY are set in your environment.'
   );
 
-  // Return a fallback proxy stub to prevent top-level runtime crashes, keeping the UI visible
-  const stub = new Proxy({}, {
-    get: (target, prop) => {
-      // Return a function that logs a warning and returns a resolved promise with an error
-      return () => {
-        console.error(`Attempted to call Supabase client method "${String(prop)}" but credentials are missing.`);
-        alert('Configuration Error: Please add SUPABASE_URL and SUPABASE_ANON_KEY to your environment variables on Netlify.');
-        return Promise.resolve({ data: null, error: new Error('Supabase credentials missing') });
-      };
-    }
-  });
+  // Return a recursive proxy stub to support chaining (e.g., supabase.auth.signInWithPassword, supabase.from().select())
+  const makeStub = () => {
+    return new Proxy({}, {
+      get: (target, prop) => {
+        if (prop === 'auth') {
+          return new Proxy({}, {
+            get: (t2, prop2) => {
+              return () => {
+                console.error(`Attempted to call auth.${String(prop2)} but credentials are missing.`);
+                alert('Configuration Error: Please add SUPABASE_URL and SUPABASE_ANON_KEY to your environment variables.');
+                return Promise.resolve({ data: null, error: new Error('Supabase credentials missing') });
+              };
+            }
+          });
+        }
+        if (prop === 'from') {
+          return () => {
+            const chainable = new Proxy({}, {
+              get: () => () => chainable
+            });
+            return chainable;
+          };
+        }
+        return () => {
+          console.error(`Attempted to call ${String(prop)} but credentials are missing.`);
+          alert('Configuration Error: Please add SUPABASE_URL and SUPABASE_ANON_KEY to your environment variables.');
+          return Promise.resolve({ data: null, error: new Error('Supabase credentials missing') });
+        };
+      }
+    });
+  };
 
-  supabaseInstance = stub;
-  adminAuthClientInstance = stub;
+  supabaseInstance = makeStub();
+  adminAuthClientInstance = makeStub();
 }
 
 export const supabase = supabaseInstance;
