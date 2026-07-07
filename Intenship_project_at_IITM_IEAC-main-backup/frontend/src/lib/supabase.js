@@ -1,8 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Retrieve credentials from environment variables
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || import.meta.env.SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.SUPABASE_ANON_KEY || '';
+// Fallback to your project credentials directly if environment variables are not loaded/cached
+const DEFAULT_URL = 'https://pefgdydkticywzjrgnrm.supabase.co';
+const DEFAULT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBlZmdkeWRrdGljeXd6anJnbnJtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMzOTI2NzQsImV4cCI6MjA5ODk2ODY3NH0.z-pLvGNUfq784TNZ_4_ZtD_yKcgX39zkcfcU9wWtW4o';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || import.meta.env.SUPABASE_URL || DEFAULT_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.SUPABASE_ANON_KEY || DEFAULT_KEY;
 
 let supabaseInstance;
 let adminAuthClientInstance;
@@ -16,12 +19,7 @@ if (supabaseUrl && supabaseAnonKey) {
     }
   });
 } else {
-  console.warn(
-    'Warning: Supabase credentials are missing! Please check that VITE_SUPABASE_URL / SUPABASE_URL ' +
-    'and VITE_SUPABASE_ANON_KEY / SUPABASE_ANON_KEY are set in your environment.'
-  );
-
-  // Return a recursive proxy stub to support chaining (e.g., supabase.auth.signInWithPassword, supabase.from().select())
+  console.warn('Warning: Supabase client initialized as fallback stub.');
   const makeStub = () => {
     return new Proxy({}, {
       get: (target, prop) => {
@@ -29,7 +27,6 @@ if (supabaseUrl && supabaseAnonKey) {
           return new Proxy({}, {
             get: (t2, prop2) => {
               return () => {
-                console.error(`Attempted to call auth.${String(prop2)} but credentials are missing.`);
                 alert('Configuration Error: Please add SUPABASE_URL and SUPABASE_ANON_KEY to your environment variables.');
                 return Promise.resolve({ data: null, error: new Error('Supabase credentials missing') });
               };
@@ -45,7 +42,6 @@ if (supabaseUrl && supabaseAnonKey) {
           };
         }
         return () => {
-          console.error(`Attempted to call ${String(prop)} but credentials are missing.`);
           alert('Configuration Error: Please add SUPABASE_URL and SUPABASE_ANON_KEY to your environment variables.');
           return Promise.resolve({ data: null, error: new Error('Supabase credentials missing') });
         };
