@@ -2,41 +2,41 @@
   "users": [
     {
       "id": "Dk0II5a6",
-      "name": "Admin User",
-      "email": "admin",
-      "phone": "1234567890",
+      "name": "6eaf7de288a01b7ff13cd083e12fd069:1a60962805ee35198812049f2dc28ff7",
+      "email": "0d6ce66636824720cefafc5ef878d676:4ac793cad6554a32b13327a48361eeee",
+      "phone": "35732b4c7dbfede0be6a7ff5dd54b0ce:6cb24918bc66e3323d0bfe7c8552c0aa",
       "password": "$2b$10$oIAvTslehwcmWHATnLLKrOTAX3OA8JAZTOqD0ZePHc2htPkhTd2fW",
       "role": "Admin"
     },
     {
       "id": "C15PGHGg",
-      "name": "gokulrambalaji",
-      "email": "gokulrambalaji@gmail.com",
-      "phone": "8428796572",
+      "name": "7609be36724c51145e6d49a64d45e43d:25020a35b2fdde5e163accc240514807",
+      "email": "119b5f6f108308b3b7bfc886a6a249af:609bf346bd0ed0187a27b846c6a1e1084c9765e4f9895c20be3495db41dbe629",
+      "phone": "331477611ecbab0eacddc3eead14000d:ff9efbcf39d6ef9f5ca393931afb3b3b",
       "password": "$2b$10$HkHKBOPrwZ4R3HjG8Q3R9eBmvfHBbS.omzqF5/tL0LKj3Ui2/qDsy",
       "role": "engineer"
     },
     {
       "id": "QnBaB_lG",
-      "name": "iitmadmin",
-      "email": "iitmadmin@iit.com",
-      "phone": "123",
+      "name": "22682fff8ed93e3a77646b7d41ceef54:818f7ed3f1851e50594a873d052ea1b6",
+      "email": "3326a9ddb9be771434419dd196a1eda2:d60344f3cf17cd85c8f32e3905a267f93a167918745384ca1fbb7f3f289295ed",
+      "phone": "67b4c7fa4f8a07f826ae09c078ee9d7a:53e5ec49e98f91d41d13206159d786ca",
       "password": "$2b$10$FaqtO4/a5YVPYdCRl.C6QOlZ6fGd6cbmgpWp4Gmrs4DxjuikjHD2C",
       "role": "admin"
     },
     {
       "id": "r3djUira",
-      "name": "Madhu",
-      "email": "mathu@iit.com",
-      "phone": "123",
+      "name": "d0002073991a17151e5d54b69866be43:6e009ca7c886bd9956599c1cb11f6d24",
+      "email": "7523ebd77ce0fff3076165585f9fcb68:f29b2748ad80081f6e682fb869480843",
+      "phone": "9b7178faa9ef34f298e67da7acbf57f3:404db6dd1923d90c7fa3c3336f14c311",
       "password": "$2b$10$E3caMmGoMSI3Ji8Yxl7mzeoA3eGxfEpVAmCDPSgIlmKOwT9zacyoS",
       "role": "engineer"
     },
     {
       "id": "l0Or1i2d",
-      "name": "mathu",
-      "email": "abc@abc",
-      "phone": "123",
+      "name": "ed0681bbe4b49ec0eb1f9c610282b815:49d1f11fa3167ae22edaa43fc932d4cb",
+      "email": "5db78f28b78e401342d01952d14391da:c282cad25d48b88b8465a0f8cb75eebe",
+      "phone": "52187bf2c76f5d7c024b56a426ee64f8:c120ee54d9f3fa4fb2e8456071a98e82",
       "password": "$2b$10$Epz32co31sqw3c.DLkenJ.UOsMI/8KfZeyEsF5vUvYKuqpbtiuK6y",
       "role": "trainee"
     }

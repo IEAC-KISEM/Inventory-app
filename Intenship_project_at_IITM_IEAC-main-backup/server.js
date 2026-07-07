@@ -19,9 +19,52 @@ const io = new Server(server);
 
 const JWT_SECRET = process.env.JWT_SECRET || 'iitm-ieac-super-secret-key-98765';
 
+// Security Headers (production grade)
+app.use((req, res, next) => {
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  next();
+});
+
+// Custom Rate Limiter to manage user traffic (max 150 requests per 15 mins per IP)
+const ipRequestCounts = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, data] of ipRequestCounts.entries()) {
+    if (now - data.resetTime > 0) {
+      ipRequestCounts.delete(ip);
+    }
+  }
+}, 10 * 60 * 1000);
+
+const rateLimiter = (limit = 150, windowMs = 15 * 60 * 1000) => {
+  return (req, res, next) => {
+    const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const now = Date.now();
+    if (!ipRequestCounts.has(ip)) {
+      ipRequestCounts.set(ip, { count: 1, resetTime: now + windowMs });
+      return next();
+    }
+    const record = ipRequestCounts.get(ip);
+    if (now > record.resetTime) {
+      record.count = 1;
+      record.resetTime = now + windowMs;
+      return next();
+    }
+    record.count++;
+    if (record.count > limit) {
+      return res.status(429).json({ error: 'Too many requests. Please try again later.' });
+    }
+    next();
+  };
+};
+
 app.use(cors());
 app.use(bodyParser.json());
 app.use(cookieParser());
+app.use('/api/', rateLimiter(150, 15 * 60 * 1000));
 app.use(express.static(path.join(__dirname, 'frontend/dist')));
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -71,6 +114,51 @@ app.get('/download/:filename', authenticateToken, async (req, res) => {
     const bookings = await db.getBookings();
     const instruments = await db.getInstruments();
     const users = await db.getUsers();
+
+    // Check if this is a booking extract sheet request
+    if (filename.startsWith('booking-extract-')) {
+      const match = filename.match(/booking-extract-(\d{4}-\d{2}-\d{2})-(\d{4}-\d{2}-\d{2})\.xlsx/);
+      let filtered = [];
+      if (match) {
+        const startDateLimit = new Date(match[1]);
+        const endDateLimit = new Date(match[2] + "T23:59:59.999Z");
+        filtered = bookings.filter(b => {
+          const bStart = new Date(b.startDate);
+          return bStart >= startDateLimit && bStart <= endDateLimit;
+        });
+      } else {
+        filtered = bookings;
+      }
+
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet('Extracted Bookings');
+      sheet.addRow(['SNo', 'Instrument Name', 'Model', 'Serial', 'Booked By', 'Start Date', 'Due Date', 'Returned Date', 'Returned By', 'Return Notes', 'Original Remarks', 'Status']);
+
+      filtered.forEach((b, idx) => {
+        const inst = instruments.find(i => String(i.id) === String(b.instrumentId)) || {};
+        const user = users.find(u => String(u.id) === String(b.userId)) || {};
+        sheet.addRow([
+          idx + 1,
+          inst.name || 'Unknown',
+          inst.model || 'N/A',
+          inst.serial || 'N/A',
+          user.name || 'Unknown User',
+          new Date(b.startDate).toLocaleDateString(),
+          new Date(b.dueDate).toLocaleDateString(),
+          b.returnedDate ? new Date(b.returnedDate).toLocaleDateString() : 'Active',
+          b.returnedByName || 'N/A',
+          b.returnRemarks || '',
+          b.remarks || '',
+          b.status || 'approved'
+        ]);
+      });
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(buffer);
+      return;
+    }
 
     // Look up bookings that match the requested sheet URL in the database
     const targetBookings = bookings.filter(b => b.sheetUrl === '/download/' + filename);
@@ -254,9 +342,10 @@ async function getInstrumentsWithBookings() {
 
 async function broadcastUpdate() {
   try {
-    const instruments = await getInstrumentsWithBookings();
-    io.emit('instruments', instruments);
-    io.emit('bookings');
+    // Real-time broadcasts disabled in production to manage traffic and allow updates on refresh
+    // const instruments = await getInstrumentsWithBookings();
+    // io.emit('instruments', instruments);
+    // io.emit('bookings');
   } catch (err) {
     console.error('broadcastUpdate error', err);
   }
@@ -434,8 +523,9 @@ app.post('/api/book', authenticateToken, async (req, res) => {
       const prev = inst.lastInsight || '';
       sheet.addRow([1, inst.name, inst.model, inst.serial, user.name, start.toISOString(), due.toISOString(), prev, remarks || '']);
       const fileName = `booking-${Date.now()}.xlsx`;
-      const filePath = path.join(__dirname, 'public', fileName);
-      await workbook.xlsx.writeFile(filePath);
+      // In-memory XLSX generated dynamically on download, no local filesystem write needed
+      // const filePath = path.join(__dirname, 'public', fileName);
+      // await workbook.xlsx.writeFile(filePath);
       const sheetUrl = `/download/` + fileName;
 
       await db.insertBooking({
@@ -623,8 +713,9 @@ app.post('/api/book/bulk', authenticateToken, async (req, res) => {
 
     try {
       const fileName = `booking-${Date.now()}.xlsx`;
-      const filePath = path.join(__dirname, 'public', fileName);
-      await workbook.xlsx.writeFile(filePath);
+      // In-memory XLSX generated dynamically on download, no local filesystem write needed
+      // const filePath = path.join(__dirname, 'public', fileName);
+      // await workbook.xlsx.writeFile(filePath);
       const sheetUrl = '/download/' + fileName;
 
       for (const bid of createdBookingIds) {
@@ -810,8 +901,9 @@ app.post('/api/booking-requests/:id/approve', authenticateToken, requireRole(['a
 
     try {
       const fileName = `booking-bulk-${id}-${Date.now()}.xlsx`;
-      const filePath = path.join(__dirname, 'public', fileName);
-      await workbook.xlsx.writeFile(filePath);
+      // In-memory XLSX generated dynamically on download, no local filesystem write needed
+      // const filePath = path.join(__dirname, 'public', fileName);
+      // await workbook.xlsx.writeFile(filePath);
       const sheetUrl = `/download/` + fileName;
 
       // Approve every booking in the group and set sheetUrl on each
@@ -894,8 +986,9 @@ app.post('/api/booking-requests/:id/approve', authenticateToken, requireRole(['a
       const prev = inst.lastInsight || '';
       sheet.addRow([1, inst.name, inst.model, inst.serial, user.name, start.toISOString(), due.toISOString(), prev, booking.remarks || '']);
       const fileName = `booking-${booking.id}-${Date.now()}.xlsx`;
-      const filePath = path.join(__dirname, 'public', fileName);
-      await workbook.xlsx.writeFile(filePath);
+      // In-memory XLSX generated dynamically on download, no local filesystem write needed
+      // const filePath = path.join(__dirname, 'public', fileName);
+      // await workbook.xlsx.writeFile(filePath);
       const sheetUrl = `/download/` + fileName;
 
       await db.updateBooking(booking.id, { status: 'approved', sheetUrl });
@@ -1171,46 +1264,7 @@ app.get('/api/admin/extract-bookings', authenticateToken, requireRole(['admin'])
       return res.status(400).json({ error: 'Start date and End date are required.' });
     }
 
-    const startDateLimit = new Date(start);
-    const endDateLimit = new Date(end + "T23:59:59.999Z");
-
-    const bookings = await db.getBookings();
-    const users = await db.getUsers();
-    const instruments = await db.getInstruments();
-
-    // Filter bookings where startDate falls within range
-    const filtered = bookings.filter(b => {
-      const bStart = new Date(b.startDate);
-      return bStart >= startDateLimit && bStart <= endDateLimit;
-    });
-
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Extracted Bookings');
-
-    sheet.addRow(['SNo', 'Instrument Name', 'Model', 'Serial', 'Booked By', 'Start Date', 'Due Date', 'Returned Date', 'Returned By', 'Return Notes', 'Original Remarks', 'Status']);
-
-    filtered.forEach((b, idx) => {
-      const inst = instruments.find(i => String(i.id) === String(b.instrumentId)) || {};
-      const user = users.find(u => String(u.id) === String(b.userId)) || {};
-      sheet.addRow([
-        idx + 1,
-        inst.name || 'Unknown',
-        inst.model || 'N/A',
-        inst.serial || 'N/A',
-        user.name || 'Unknown User',
-        new Date(b.startDate).toLocaleDateString(),
-        new Date(b.dueDate).toLocaleDateString(),
-        b.returnedDate ? new Date(b.returnedDate).toLocaleDateString() : 'Active',
-        b.returnedByName || 'N/A',
-        b.returnRemarks || '',
-        b.remarks || '',
-        b.status || 'approved'
-      ]);
-    });
-
-    const fileName = `booking-extract-${Date.now()}.xlsx`;
-    const filePath = path.join(__dirname, 'public', fileName);
-    await workbook.xlsx.writeFile(filePath);
+    const fileName = `booking-extract-${start}-${end}.xlsx`;
     const sheetUrl = `/download/` + fileName;
 
     res.json({ ok: true, sheet: sheetUrl });

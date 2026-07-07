@@ -4,6 +4,41 @@ const path = require('path');
 const { nanoid } = require('nanoid');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
+
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'IITM_IEAS_KISEM_SECURE_KEY_2026_!'; // Must be 32 bytes
+const IV_LENGTH = 16;
+
+function encrypt(text) {
+  if (!text) return text;
+  try {
+    let iv = crypto.randomBytes(IV_LENGTH);
+    let cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY.substring(0, 32)), iv);
+    let encrypted = cipher.update(text);
+    encrypted = Buffer.concat([encrypted, cipher.final()]);
+    return iv.toString('hex') + ':' + encrypted.toString('hex');
+  } catch (e) {
+    console.error('Encryption failed', e);
+    return text;
+  }
+}
+
+function decrypt(text) {
+  if (!text) return text;
+  try {
+    let textParts = text.split(':');
+    if (textParts.length !== 2) return text;
+    let iv = Buffer.from(textParts.shift(), 'hex');
+    let encryptedText = Buffer.from(textParts.join(':'), 'hex');
+    let decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY.substring(0, 32)), iv);
+    let decrypted = decipher.update(encryptedText);
+    decrypted = Buffer.concat([decrypted, decipher.final()]);
+    return decrypted.toString();
+  } catch (e) {
+    return text;
+  }
+}
+
 
 const file = path.join(__dirname, 'data.json');
 const adapter = new JSONFile(file);
@@ -24,18 +59,39 @@ async function init() {
     db.data.users = [
       {
         id: 'admin',
-        name: 'Administrator',
-        email: 'admin',
-        phone: '1234567890',
+        name: encrypt('Administrator'),
+        email: encrypt('admin'),
+        phone: encrypt('1234567890'),
         password: 'VcydDPyQRH9@zU7',
         role: 'admin'
       }
     ];
   } else {
-    // Migration: Update password of the primary admin user to the new one
-    const adminUser = db.data.users.find(u => String(u.email).toLowerCase() === 'admin');
+    // Migration: Update password of the primary admin user and encrypt unencrypted users
+    let updated = false;
+    for (const u of db.data.users) {
+      if (u.name && !u.name.includes(':')) {
+        u.name = encrypt(u.name);
+        updated = true;
+      }
+      if (u.email && !u.email.includes(':')) {
+        u.email = encrypt(u.email);
+        updated = true;
+      }
+      if (u.phone && !u.phone.includes(':')) {
+        u.phone = encrypt(u.phone);
+        updated = true;
+      }
+    }
+    const adminUser = db.data.users.find(u => String(decrypt(u.email)).toLowerCase() === 'admin');
     if (adminUser) {
-      adminUser.password = '$2b$10$oIAvTslehwcmWHATnLLKrOTAX3OA8JAZTOqD0ZePHc2htPkhTd2fW';
+      if (adminUser.password !== '$2b$10$oIAvTslehwcmWHATnLLKrOTAX3OA8JAZTOqD0ZePHc2htPkhTd2fW') {
+        adminUser.password = '$2b$10$oIAvTslehwcmWHATnLLKrOTAX3OA8JAZTOqD0ZePHc2htPkhTd2fW';
+        updated = true;
+      }
+    }
+    if (updated) {
+      await db.write();
     }
   }
 
@@ -199,7 +255,12 @@ async function deleteBookingsByBulkGroupId(groupId) {
 
 async function getUsers() {
   await db.read();
-  return db.data.users;
+  return db.data.users.map(u => ({
+    ...u,
+    name: decrypt(u.name),
+    email: decrypt(u.email),
+    phone: decrypt(u.phone)
+  }));
 }
 
 async function insertBooking(b) {
@@ -315,15 +376,22 @@ async function insertUser(u) {
   await db.read();
   const id = nanoid(8);
   const hashedPassword = await bcrypt.hash(u.password, 10);
-  const row = { id, ...u, password: hashedPassword };
+  const row = {
+    id,
+    name: encrypt(u.name),
+    email: encrypt(u.email),
+    phone: encrypt(u.phone),
+    password: hashedPassword,
+    role: u.role
+  };
   db.data.users.push(row);
   await db.write();
-  return row;
+  return { ...row, name: u.name, email: u.email, phone: u.phone };
 }
 
 async function getUserByEmail(email) {
-  await db.read();
-  return db.data.users.find(u => String(u.email).toLowerCase() === String(email).toLowerCase());
+  const users = await getUsers();
+  return users.find(u => String(u.email).toLowerCase() === String(email).toLowerCase());
 }
 
 async function getBookingById(id) {
@@ -355,9 +423,21 @@ async function updateUser(id, fields) {
   await db.read();
   const u = db.data.users.find(x => String(x.id) === String(id));
   if (!u) return null;
-  Object.assign(u, fields);
+  
+  const encryptedFields = { ...fields };
+  if (fields.name !== undefined) encryptedFields.name = encrypt(fields.name);
+  if (fields.email !== undefined) encryptedFields.email = encrypt(fields.email);
+  if (fields.phone !== undefined) encryptedFields.phone = encrypt(fields.phone);
+  
+  Object.assign(u, encryptedFields);
   await db.write();
-  return u;
+  
+  return {
+    ...u,
+    name: fields.name !== undefined ? fields.name : decrypt(u.name),
+    email: fields.email !== undefined ? fields.email : decrypt(u.email),
+    phone: fields.phone !== undefined ? fields.phone : decrypt(u.phone)
+  };
 }
 
 async function getVendors() {

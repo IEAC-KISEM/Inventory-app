@@ -15,15 +15,59 @@ const SYNC_TOPIC = 'iitm/asset-management/sync/v1/GokulramBalaji';
 
 let mqttClient = null;
 
+// Simple browser-compatible base64 encryption/decryption simulator
+function encrypt(text) {
+  if (!text) return text;
+  if (text.startsWith('enc:')) return text;
+  try {
+    return 'enc:' + btoa(unescape(encodeURIComponent(text)));
+  } catch (e) {
+    return text;
+  }
+}
+
+function decrypt(text) {
+  if (!text || !text.startsWith('enc:')) return text;
+  try {
+    return decodeURIComponent(escape(atob(text.substring(4))));
+  } catch (e) {
+    return text;
+  }
+}
+
 // Initialise Database in LocalStorage
 function getDb() {
   const local = localStorage.getItem('iitm_db');
+  let data;
   if (!local) {
-    const defaultData = { ...SEEDED_DATA, lastUpdatedTime: Date.now() };
-    localStorage.setItem('iitm_db', JSON.stringify(defaultData));
-    return defaultData;
+    data = { ...SEEDED_DATA, lastUpdatedTime: Date.now() };
+  } else {
+    data = JSON.parse(local);
   }
-  return JSON.parse(local);
+  
+  // Migration: Ensure user details are encrypted in simulated DB
+  let updated = false;
+  if (data.users) {
+    for (const u of data.users) {
+      if (u.name && !u.name.startsWith('enc:')) {
+        u.name = encrypt(u.name);
+        updated = true;
+      }
+      if (u.email && !u.email.startsWith('enc:')) {
+        u.email = encrypt(u.email);
+        updated = true;
+      }
+      if (u.phone && !u.phone.startsWith('enc:')) {
+        u.phone = encrypt(u.phone);
+        updated = true;
+      }
+    }
+  }
+  
+  if (!local || updated) {
+    localStorage.setItem('iitm_db', JSON.stringify(data));
+  }
+  return data;
 }
 
 function writeDb(data) {
@@ -31,72 +75,72 @@ function writeDb(data) {
   data.lastUpdatedTime = timestamp;
   localStorage.setItem('iitm_db', JSON.stringify(data));
   
-  // Broadcast update to the local frontend app
-  setTimeout(() => {
-    socket.emit('data_updated');
-    socket.emit('instruments', data.instruments || []);
-    socket.emit('bookings');
-  }, 50);
+  // Broadcast update to the local frontend app (commented out to disable real-time)
+  // setTimeout(() => {
+  //   socket.emit('data_updated');
+  //   socket.emit('instruments', data.instruments || []);
+  //   socket.emit('bookings');
+  // }, 50);
 
-  // Publish update to the cloud broker for other users
-  if (mqttClient && mqttClient.connected) {
-    try {
-      const payload = {
-        senderId: SYNC_CLIENT_ID,
-        timestamp: timestamp,
-        data: data
-      };
-      mqttClient.publish(SYNC_TOPIC, JSON.stringify(payload), { qos: 1 });
-    } catch (err) {
-      console.error('Failed to publish sync message:', err);
-    }
-  }
+  // Publish update to the cloud broker for other users (commented out to disable real-time)
+  // if (mqttClient && mqttClient.connected) {
+  //   try {
+  //     const payload = {
+  //       senderId: SYNC_CLIENT_ID,
+  //       timestamp: timestamp,
+  //       data: data
+  //     };
+  //     mqttClient.publish(SYNC_TOPIC, JSON.stringify(payload), { qos: 1 });
+  //   } catch (err) {
+  //     console.error('Failed to publish sync message:', err);
+  //   }
+  // }
 }
 
-// Setup real-time connection
-try {
-  mqttClient = mqtt.connect('wss://broker.hivemq.com:8884/mqtt', {
-    clientId: SYNC_CLIENT_ID,
-    clean: true,
-    connectTimeout: 4000,
-    reconnectPeriod: 2000,
-  });
-
-  mqttClient.on('connect', () => {
-    console.log('Real-time sync: connected to cloud broker.');
-    mqttClient.subscribe(SYNC_TOPIC);
-  });
-
-  mqttClient.on('message', (topic, message) => {
-    try {
-      const payload = JSON.parse(message.toString());
-      if (payload.senderId === SYNC_CLIENT_ID) return; // Ignore own message
-
-      console.log('Real-time sync: received database update from another user.');
-      const localDb = getDb();
-
-      // Last-Write-Wins (LWW) conflict resolution
-      if (!localDb.lastUpdatedTime || payload.timestamp > localDb.lastUpdatedTime) {
-        const remoteDb = payload.data;
-        remoteDb.lastUpdatedTime = payload.timestamp;
-        localStorage.setItem('iitm_db', JSON.stringify(remoteDb));
-        
-        // Trigger React UI updates on other clients
-        socket.emit('data_updated');
-        socket.emit('instruments', remoteDb.instruments || []);
-        socket.emit('bookings');
-      }
-    } catch (err) {
-      console.error('Failed to parse sync message:', err);
-    }
-  });
-
-  mqttClient.on('error', (err) => {
-    console.error('Real-time sync error:', err);
-  });
-} catch (err) {
-  console.error('Failed to initialize real-time sync:', err);
-}
+// Setup real-time connection (commented out to disable real-time)
+// try {
+//   mqttClient = mqtt.connect('wss://broker.hivemq.com:8884/mqtt', {
+//     clientId: SYNC_CLIENT_ID,
+//     clean: true,
+//     connectTimeout: 4000,
+//     reconnectPeriod: 2000,
+//   });
+// 
+//   mqttClient.on('connect', () => {
+//     console.log('Real-time sync: connected to cloud broker.');
+//     mqttClient.subscribe(SYNC_TOPIC);
+//   });
+// 
+//   mqttClient.on('message', (topic, message) => {
+//     try {
+//       const payload = JSON.parse(message.toString());
+//       if (payload.senderId === SYNC_CLIENT_ID) return; // Ignore own message
+// 
+//       console.log('Real-time sync: received database update from another user.');
+//       const localDb = getDb();
+// 
+//       // Last-Write-Wins (LWW) conflict resolution
+//       if (!localDb.lastUpdatedTime || payload.timestamp > localDb.lastUpdatedTime) {
+//         const remoteDb = payload.data;
+//         remoteDb.lastUpdatedTime = payload.timestamp;
+//         localStorage.setItem('iitm_db', JSON.stringify(remoteDb));
+//         
+//         // Trigger React UI updates on other clients
+//         socket.emit('data_updated');
+//         socket.emit('instruments', remoteDb.instruments || []);
+//         socket.emit('bookings');
+//       }
+//     } catch (err) {
+//       console.error('Failed to parse sync message:', err);
+//     }
+//   });
+// 
+//   mqttClient.on('error', (err) => {
+//     console.error('Real-time sync error:', err);
+//   });
+// } catch (err) {
+//   console.error('Failed to initialize real-time sync:', err);
+// }
 
 // Seed admin user if it doesn't exist, or migrate admin password if it does
 const dbData = getDb();
@@ -104,16 +148,16 @@ if (!dbData.users || dbData.users.length === 0) {
   dbData.users = [
     {
       id: 'admin',
-      name: 'Administrator',
-      email: 'admin',
-      phone: '1234567890',
+      name: encrypt('Administrator'),
+      email: encrypt('admin'),
+      phone: encrypt('1234567890'),
       password: '$2b$10$oIAvTslehwcmWHATnLLKrOTAX3OA8JAZTOqD0ZePHc2htPkhTd2fW', // hashed admin password
       role: 'admin'
     }
   ];
   writeDb(dbData);
 } else {
-  const existingAdmin = dbData.users.find(u => String(u.email).toLowerCase() === 'admin');
+  const existingAdmin = dbData.users.find(u => String(decrypt(u.email)).toLowerCase() === 'admin');
   if (existingAdmin) {
     existingAdmin.password = '$2b$10$oIAvTslehwcmWHATnLLKrOTAX3OA8JAZTOqD0ZePHc2htPkhTd2fW';
     writeDb(dbData);
@@ -531,7 +575,7 @@ window.fetch = async function (url, options = {}) {
     // --- AUTHENTICATION ---
     if (path === '/api/login' && method === 'POST') {
       const { email, password } = body;
-      const foundUser = db.users.find(u => String(u.email).toLowerCase() === String(email).toLowerCase());
+      const foundUser = db.users.find(u => String(decrypt(u.email)).toLowerCase() === String(email).toLowerCase());
       if (!foundUser) {
         return errorResponse('Invalid credentials. User not found.', 401);
       }
@@ -549,8 +593,8 @@ window.fetch = async function (url, options = {}) {
 
       return jsonResponse({
         id: foundUser.id,
-        name: foundUser.name,
-        email: foundUser.email,
+        name: decrypt(foundUser.name),
+        email: decrypt(foundUser.email),
         role: foundUser.role
       });
     }
@@ -562,27 +606,39 @@ window.fetch = async function (url, options = {}) {
     // --- USERS MANAGEMENT ---
     if (path === '/api/users') {
       if (method === 'GET') {
-        return jsonResponse(db.users);
+        const decryptedUsers = db.users.map(u => ({
+          ...u,
+          name: decrypt(u.name),
+          email: decrypt(u.email),
+          phone: decrypt(u.phone)
+        }));
+        return jsonResponse(decryptedUsers);
       }
       if (method === 'POST') {
         const err = requireAdmin();
         if (err) return err;
 
         const { name, email, phone, password, role } = body;
-        const exists = db.users.some(u => String(u.email).toLowerCase() === String(email).toLowerCase());
+        const exists = db.users.some(u => String(decrypt(u.email)).toLowerCase() === String(email).toLowerCase());
         if (exists) return errorResponse('A user with this email already exists.');
 
         const newUser = {
           id: generateId('USR'),
-          name,
-          email,
-          phone,
+          name: encrypt(name),
+          email: encrypt(email),
+          phone: encrypt(phone),
           password: await bcrypt.hash(password, 10),
           role
         };
         db.users.push(newUser);
         writeDb(db);
-        return jsonResponse(newUser);
+        return jsonResponse({
+          id: newUser.id,
+          name,
+          email,
+          phone,
+          role: newUser.role
+        });
       }
     }
 
@@ -594,7 +650,7 @@ window.fetch = async function (url, options = {}) {
       const targetUser = db.users.find(u => String(u.id) === String(userId));
       if (!targetUser) return errorResponse('User not found.', 404);
 
-      if ((targetUser.email || '').toLowerCase() === 'admin') {
+      if ((decrypt(targetUser.email) || '').toLowerCase() === 'admin') {
         return errorResponse('Cannot delete the primary admin account.');
       }
 
@@ -618,21 +674,27 @@ window.fetch = async function (url, options = {}) {
 
       const { name, email, phone, password, role } = body;
 
-      if (email && email.toLowerCase() !== targetUser.email.toLowerCase()) {
-        const exists = db.users.some(u => String(u.email).toLowerCase() === String(email).toLowerCase());
+      if (email && email.toLowerCase() !== decrypt(targetUser.email).toLowerCase()) {
+        const exists = db.users.some(u => String(decrypt(u.email)).toLowerCase() === String(email).toLowerCase());
         if (exists) return errorResponse('A user with this email already exists.');
       }
 
-      if (name !== undefined) targetUser.name = name;
-      if (email !== undefined) targetUser.email = email;
-      if (phone !== undefined) targetUser.phone = phone;
+      if (name !== undefined) targetUser.name = encrypt(name);
+      if (email !== undefined) targetUser.email = encrypt(email);
+      if (phone !== undefined) targetUser.phone = encrypt(phone);
       if (role !== undefined) targetUser.role = role.toLowerCase();
       if (password) {
         targetUser.password = await bcrypt.hash(password, 10);
       }
 
       writeDb(db);
-      return jsonResponse(targetUser);
+      return jsonResponse({
+        id: targetUser.id,
+        name: decrypt(targetUser.name),
+        email: decrypt(targetUser.email),
+        phone: decrypt(targetUser.phone),
+        role: targetUser.role
+      });
     }
 
     // --- INSTRUMENTS / EQUIPMENT CRUD ---
