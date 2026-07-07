@@ -46,8 +46,13 @@ function main() {
     const finalEmail = u.email.includes('@') ? u.email : `${u.email}@iitm.com`;
     const metadata = JSON.stringify({ name: u.name, role: u.role, phone: u.phone });
     
+    let pwdHash = u.password;
+    if (pwdHash && pwdHash.startsWith('$2b$')) {
+      pwdHash = '$2a$' + pwdHash.substring(4);
+    }
+    
     sql += `INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at, is_sso_user, is_anonymous) \n`;
-    sql += `VALUES (${escapeSql(uuid)}, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', ${escapeSql(finalEmail)}, ${escapeSql(u.password)}, now(), '{"provider": "email", "providers": ["email"]}'::jsonb, ${escapeSql(metadata)}::jsonb, now(), now(), false, false) \n`;
+    sql += `VALUES (${escapeSql(uuid)}, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', ${escapeSql(finalEmail)}, ${escapeSql(pwdHash)}, now(), '{"provider": "email", "providers": ["email"]}'::jsonb, ${escapeSql(metadata)}::jsonb, now(), now(), false, false) \n`;
     sql += `ON CONFLICT (id) DO NOTHING;\n\n`;
 
     // Direct insert to public.users as backup to trigger latency
