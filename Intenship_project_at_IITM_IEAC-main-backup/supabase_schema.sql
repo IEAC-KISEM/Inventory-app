@@ -165,6 +165,20 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
+-- TRIGGER TO AUTO-CONFIRM SIGNUPS (Bypasses email confirmation completely)
+CREATE OR REPLACE FUNCTION public.handle_confirm_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  new.email_confirmed_at := COALESCE(new.email_confirmed_at, now());
+  RETURN new;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created_confirm ON auth.users;
+CREATE TRIGGER on_auth_user_created_confirm
+  BEFORE INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_confirm_user();
+
 -- ROW LEVEL SECURITY (RLS) POLICIES
 ALTER TABLE public.utilities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.vendors ENABLE ROW LEVEL SECURITY;

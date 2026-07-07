@@ -490,7 +490,7 @@ window.fetch = async function (url, options = {}) {
         name: profile ? profile.name : (authData.user.user_metadata?.name || email),
         email: finalEmail,
         phone: profile ? profile.phone : (authData.user.user_metadata?.phone || ''),
-        role: profile ? profile.role : (authData.user.user_metadata?.role || 'Engineer')
+        role: (profile ? profile.role : (authData.user.user_metadata?.role || 'engineer')).toLowerCase()
       };
 
       sessionStorage.setItem('iitm_user', JSON.stringify(sessionUser));
@@ -509,7 +509,8 @@ window.fetch = async function (url, options = {}) {
       if (method === 'GET') {
         const { data, error } = await supabase.from('users').select('*');
         if (error) return errorResponse(error.message);
-        return jsonResponse(snakeToCamel(data));
+        const normalized = (data || []).map(u => ({ ...u, role: (u.role || 'engineer').toLowerCase() }));
+        return jsonResponse(snakeToCamel(normalized));
       }
 
       if (method === 'POST') {
@@ -557,8 +558,9 @@ window.fetch = async function (url, options = {}) {
           profile = data;
         }
 
-        await logAudit('CREATE', 'users', profile.id, profile);
-        return jsonResponse(snakeToCamel(profile));
+        const profileWithLowerRole = { ...profile, role: (profile.role || 'engineer').toLowerCase() };
+        await logAudit('CREATE', 'users', profile.id, profileWithLowerRole);
+        return jsonResponse(snakeToCamel(profileWithLowerRole));
       }
     }
 
@@ -578,8 +580,9 @@ window.fetch = async function (url, options = {}) {
       const { data, error } = await supabase.from('users').update(payload).eq('id', targetUserId).select().single();
       if (error) return errorResponse(error.message);
 
+      const updatedProfile = { ...data, role: (data.role || 'engineer').toLowerCase() };
       await logAudit('UPDATE', 'users', targetUserId, payload);
-      return jsonResponse(snakeToCamel(data));
+      return jsonResponse(snakeToCamel(updatedProfile));
     }
 
     if (path.startsWith('/api/users/') && method === 'DELETE') {
