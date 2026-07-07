@@ -98,7 +98,7 @@ try {
   console.error('Failed to initialize real-time sync:', err);
 }
 
-// Seed admin user if it doesn't exist
+// Seed admin user if it doesn't exist, or migrate admin password if it does
 const dbData = getDb();
 if (!dbData.users || dbData.users.length === 0) {
   dbData.users = [
@@ -107,11 +107,17 @@ if (!dbData.users || dbData.users.length === 0) {
       name: 'Administrator',
       email: 'admin',
       phone: '1234567890',
-      password: '$2b$10$0HtiZQ4LLGkgLGvv88voWOwpGUnkGw3MQtkchpmhuZ44KmCTpGrGW', // hashed admin password
+      password: '$2b$10$oIAvTslehwcmWHATnLLKrOTAX3OA8JAZTOqD0ZePHc2htPkhTd2fW', // hashed admin password
       role: 'admin'
     }
   ];
   writeDb(dbData);
+} else {
+  const existingAdmin = dbData.users.find(u => String(u.email).toLowerCase() === 'admin');
+  if (existingAdmin) {
+    existingAdmin.password = '$2b$10$oIAvTslehwcmWHATnLLKrOTAX3OA8JAZTOqD0ZePHc2htPkhTd2fW';
+    writeDb(dbData);
+  }
 }
 
 // Unique ID Generator
@@ -582,6 +588,38 @@ window.fetch = async function (url, options = {}) {
       db.users = db.users.filter(u => String(u.id) !== String(userId));
       writeDb(db);
       return jsonResponse({ ok: true });
+    }
+
+    if (path.startsWith('/api/users/') && method === 'PUT') {
+      const err = requireAdmin();
+      if (err) return err;
+
+      // Only the primary admin (email = admin) can edit user accounts
+      if (!user || (user.email || '').toLowerCase() !== 'admin') {
+        return errorResponse('Only the primary admin account can edit user accounts.', 403);
+      }
+
+      const userId = path.split('/').pop();
+      const targetUser = db.users.find(u => String(u.id) === String(userId));
+      if (!targetUser) return errorResponse('User not found.', 404);
+
+      const { name, email, phone, password, role } = body;
+
+      if (email && email.toLowerCase() !== targetUser.email.toLowerCase()) {
+        const exists = db.users.some(u => String(u.email).toLowerCase() === String(email).toLowerCase());
+        if (exists) return errorResponse('A user with this email already exists.');
+      }
+
+      if (name !== undefined) targetUser.name = name;
+      if (email !== undefined) targetUser.email = email;
+      if (phone !== undefined) targetUser.phone = phone;
+      if (role !== undefined) targetUser.role = role.toLowerCase();
+      if (password) {
+        targetUser.password = await bcrypt.hash(password, 10);
+      }
+
+      writeDb(db);
+      return jsonResponse(targetUser);
     }
 
     // --- INSTRUMENTS / EQUIPMENT CRUD ---

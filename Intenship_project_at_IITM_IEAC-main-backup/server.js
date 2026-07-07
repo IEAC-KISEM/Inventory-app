@@ -963,6 +963,43 @@ app.delete('/api/users/:id', authenticateToken, requireRole(['admin']), async (r
   res.json({ ok: true });
 });
 
+// PUT /api/users/:id (admin only)
+app.put('/api/users/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const { id } = req.params;
+  const { name, email, phone, password, role } = req.body;
+
+  // Only the primary admin (email = admin) can edit accounts
+  if ((req.user.email || '').toLowerCase() !== 'admin') {
+    return res.status(403).json({ error: 'Only the primary admin account can edit user accounts.' });
+  }
+
+  const users = await db.getUsers();
+  const userToEdit = users.find(u => String(u.id) === String(id));
+  if (!userToEdit) {
+    return res.status(404).json({ error: 'User not found.' });
+  }
+
+  if (email && email.toLowerCase() !== userToEdit.email.toLowerCase()) {
+    const existing = await db.getUserByEmail(email);
+    if (existing) {
+      return res.status(400).json({ error: 'Mail ID is already registered.' });
+    }
+  }
+
+  const updatedFields = {};
+  if (name !== undefined) updatedFields.name = name;
+  if (email !== undefined) updatedFields.email = email;
+  if (phone !== undefined) updatedFields.phone = phone;
+  if (role !== undefined) updatedFields.role = role.toLowerCase();
+  if (password) {
+    updatedFields.password = await bcrypt.hash(password, 10);
+  }
+
+  const updatedUser = await db.updateUser(id, updatedFields);
+  const { password: _, ...sanitized } = updatedUser;
+  res.json(sanitized);
+});
+
 async function reconcileInstrumentStatus(instrumentId) {
   const bookingsList = await db.getBookings();
   const now = new Date();

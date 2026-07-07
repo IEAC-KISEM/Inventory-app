@@ -27,10 +27,16 @@ async function init() {
         name: 'Administrator',
         email: 'admin',
         phone: '1234567890',
-        password: 'admin',
+        password: 'VcydDPyQRH9@zU7',
         role: 'admin'
       }
     ];
+  } else {
+    // Migration: Update password of the primary admin user to the new one
+    const adminUser = db.data.users.find(u => String(u.email).toLowerCase() === 'admin');
+    if (adminUser) {
+      adminUser.password = '$2b$10$oIAvTslehwcmWHATnLLKrOTAX3OA8JAZTOqD0ZePHc2htPkhTd2fW';
+    }
   }
 
   // Seed default utilities if empty
@@ -345,6 +351,15 @@ async function deleteUser(id) {
   await db.write();
 }
 
+async function updateUser(id, fields) {
+  await db.read();
+  const u = db.data.users.find(x => String(x.id) === String(id));
+  if (!u) return null;
+  Object.assign(u, fields);
+  await db.write();
+  return u;
+}
+
 async function getVendors() {
   await db.read();
   return db.data.vendors || [];
@@ -462,6 +477,7 @@ module.exports = {
   deleteBooking,
   deleteBookingsByBulkGroupId,
   deleteUser,
+  updateUser,
   hashPasswordsInDb,
   writeData,
   setBookings,

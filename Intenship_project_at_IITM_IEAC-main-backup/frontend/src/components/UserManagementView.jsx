@@ -6,9 +6,11 @@ import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { UserPlus, Users, Phone, Mail, KeyRound, User, CheckCircle2, AlertCircle, Trash2, Database, Download, AlertTriangle } from "lucide-react"
+import { UserPlus, Users, Phone, Mail, KeyRound, User, CheckCircle2, AlertCircle, Trash2, Database, Download, AlertTriangle, Edit3 } from "lucide-react"
 
 export default function UserManagementView({ currentUser, offerDownload }) {
+  const isPrimaryAdmin = currentUser?.email?.toLowerCase() === "admin"
+
   const [users, setUsers] = useState([])
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
@@ -20,6 +22,29 @@ export default function UserManagementView({ currentUser, offerDownload }) {
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
+  const [editingUser, setEditingUser] = useState(null)
+
+  const startEdit = (userToEdit) => {
+    setSuccess("")
+    setError("")
+    setEditingUser(userToEdit)
+    setName(userToEdit.name || "")
+    setEmail(userToEdit.email || "")
+    setPhone(userToEdit.phone || "")
+    setPassword("")
+    setRole(userToEdit.role || "engineer")
+  }
+
+  const cancelEdit = () => {
+    setSuccess("")
+    setError("")
+    setEditingUser(null)
+    setName("")
+    setEmail("")
+    setPhone("")
+    setPassword("")
+    setRole("engineer")
+  }
 
   // System Maintenance States
   const [extractStart, setExtractStart] = useState("")
@@ -125,27 +150,44 @@ export default function UserManagementView({ currentUser, offerDownload }) {
     setLoading(true)
 
     try {
-      const res = await fetch("/api/users", {
-        method: "POST",
+      const url = editingUser ? `/api/users/${editingUser.id}` : "/api/users"
+      const method = editingUser ? "PUT" : "POST"
+
+      const payload = { name, email, phone, role }
+      if (password) {
+        payload.password = password
+      } else if (!editingUser) {
+        setError("Password is required for new users.")
+        setLoading(false)
+        return
+      }
+
+      const res = await fetch(url, {
+        method: method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, phone, password, role })
+        body: JSON.stringify(payload)
       })
 
       const data = await res.json()
 
       if (res.ok) {
-        setSuccess(`User "${name}" created successfully.`)
-        setName("")
-        setEmail("")
-        setPhone("")
-        setPassword("")
-        setRole("engineer")
+        if (editingUser) {
+          setSuccess(`User "${name}" updated successfully.`)
+          cancelEdit()
+        } else {
+          setSuccess(`User "${name}" created successfully.`)
+          setName("")
+          setEmail("")
+          setPhone("")
+          setPassword("")
+          setRole("engineer")
+        }
         fetchUsers()
       } else {
-        setError(data.error || "Failed to create user.")
+        setError(data.error || `Failed to ${editingUser ? 'update' : 'create'} user.`)
       }
     } catch (err) {
-      console.error("Error creating user", err)
+      console.error(`Error ${editingUser ? 'updating' : 'creating'} user`, err)
       setError("Server connection failed.")
     } finally {
       setLoading(false)
@@ -187,14 +229,16 @@ export default function UserManagementView({ currentUser, offerDownload }) {
       </div>
 
       <div className="grid gap-6 md:grid-cols-3">
-        {/* Create User Form */}
+        {/* Create / Edit User Form */}
         <Card className="md:col-span-1 shadow-sm h-fit">
           <CardHeader>
             <CardTitle className="text-lg font-semibold flex items-center gap-2">
               <UserPlus className="w-5 h-5 text-primary" />
-              Register User
+              {editingUser ? "Edit User Profile" : "Register User"}
             </CardTitle>
-            <CardDescription>Their Mail ID will act as their Login ID.</CardDescription>
+            <CardDescription>
+              {editingUser ? `Updating details for "${editingUser.name}"` : "Their Mail ID will act as their Login ID."}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -258,17 +302,17 @@ export default function UserManagementView({ currentUser, offerDownload }) {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">{editingUser ? "New Password" : "Password"}</Label>
                 <div className="relative">
                   <KeyRound className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground/60" />
                   <Input
                     id="password"
                     type="password"
-                    placeholder="••••••••"
+                    placeholder={editingUser ? "Leave blank to keep current" : "••••••••"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="pl-10"
-                    required
+                    required={!editingUser}
                   />
                 </div>
               </div>
@@ -292,8 +336,19 @@ export default function UserManagementView({ currentUser, offerDownload }) {
                 className="w-full mt-2 cursor-pointer font-semibold"
                 disabled={loading}
               >
-                {loading ? "Registering..." : "Create Account"}
+                {loading ? (editingUser ? "Saving..." : "Registering...") : (editingUser ? "Save Changes" : "Create Account")}
               </Button>
+
+              {editingUser && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full mt-1.5 cursor-pointer font-semibold text-muted-foreground"
+                  onClick={cancelEdit}
+                >
+                  Cancel Edit
+                </Button>
+              )}
             </form>
           </CardContent>
         </Card>
@@ -334,27 +389,40 @@ export default function UserManagementView({ currentUser, offerDownload }) {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        {/* Disable delete for primary admin and for current logged-in user */}
-                        {u.email !== 'admin' && String(u.id) !== String(currentUser?.id) ? (
-                          <div className="flex justify-end items-center gap-1.5">
-                            {confirmDeleteId === u.id && (
-                              <span className="text-[10px] font-bold text-destructive animate-pulse">Confirm?</span>
-                            )}
+                        <div className="flex justify-end items-center gap-1.5">
+                          {isPrimaryAdmin && (
                             <Button
                               size="sm"
-                              variant={confirmDeleteId === u.id ? "destructive" : "ghost"}
-                              className={`h-7 transition-all cursor-pointer font-semibold ${
-                                confirmDeleteId === u.id ? "px-2 text-xs" : "w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
-                              }`}
-                              title={confirmDeleteId === u.id ? "Click again to confirm delete" : `Remove ${u.name}`}
-                              onClick={() => handleDelete(u.id, u.name)}
+                              variant="ghost"
+                              className="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/10 cursor-pointer"
+                              title={`Edit ${u.name}`}
+                              onClick={() => startEdit(u)}
                             >
-                              {confirmDeleteId === u.id ? "Yes" : <Trash2 className="w-3.5 h-3.5" />}
+                              <Edit3 className="w-3.5 h-3.5" />
                             </Button>
-                          </div>
-                        ) : (
-                          <span className="text-[10px] text-muted-foreground/40 italic pr-1">—</span>
-                        )}
+                          )}
+                          {/* Disable delete for primary admin and for current logged-in user */}
+                          {u.email !== 'admin' && String(u.id) !== String(currentUser?.id) ? (
+                            <>
+                              {confirmDeleteId === u.id && (
+                                <span className="text-[10px] font-bold text-destructive animate-pulse">Confirm?</span>
+                              )}
+                              <Button
+                                size="sm"
+                                variant={confirmDeleteId === u.id ? "destructive" : "ghost"}
+                                className={`h-7 transition-all cursor-pointer font-semibold ${
+                                  confirmDeleteId === u.id ? "px-2 text-xs" : "w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                }`}
+                                title={confirmDeleteId === u.id ? "Click again to confirm delete" : `Remove ${u.name}`}
+                                onClick={() => handleDelete(u.id, u.name)}
+                              >
+                                {confirmDeleteId === u.id ? "Yes" : <Trash2 className="w-3.5 h-3.5" />}
+                              </Button>
+                            </>
+                          ) : (
+                            !isPrimaryAdmin && <span className="text-[10px] text-muted-foreground/40 italic pr-1">—</span>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

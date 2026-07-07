@@ -13,6 +13,7 @@
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
     "exceljs": "^4.3.0",
+    "instrument-inventory": "file:..",
     "lucide-react": "^1.22.0",
     "mqtt": "^5.15.2",
     "react": "^19.2.7",
