@@ -287,46 +287,26 @@ $$ LANGUAGE plpgsql;
 -- SEEDING DATA SECTION
 -- ========================================== 
 
--- 1. Seeding Users into auth.users (Trigger will copy to public.users)
-INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at, is_sso_user, is_anonymous) 
-VALUES ('d00d2026-c15b-4ef4-81f6-f4e56d31569a', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'admin@iitm.com', '$2a$10$oIAvTslehwcmWHATnLLKrOTAX3OA8JAZTOqD0ZePHc2htPkhTd2fW', now(), '{"provider": "email", "providers": ["email"]}'::jsonb, '{"name":"Admin User","role":"Admin","phone":"1234567890"}'::jsonb, now(), now(), false, false) 
-ON CONFLICT (id) DO NOTHING;
-
+-- 1. Seeding public.users (auth users already exist from REST API seeder)
 INSERT INTO public.users (id, name, email, phone, role) 
 VALUES ('d00d2026-c15b-4ef4-81f6-f4e56d31569a', 'Admin User', 'admin@iitm.com', '1234567890', 'Admin') 
-ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at, is_sso_user, is_anonymous) 
-VALUES ('d00d2026-c15b-4ef4-81f6-f4e56d31569b', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'gokulrambalaji@gmail.com', '$2a$10$HkHKBOPrwZ4R3HjG8Q3R9eBmvfHBbS.omzqF5/tL0LKj3Ui2/qDsy', now(), '{"provider": "email", "providers": ["email"]}'::jsonb, '{"name":"gokulrambalaji","role":"engineer","phone":"8428796572"}'::jsonb, now(), now(), false, false) 
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, email = EXCLUDED.email, phone = EXCLUDED.phone, role = EXCLUDED.role;
 
 INSERT INTO public.users (id, name, email, phone, role) 
-VALUES ('d00d2026-c15b-4ef4-81f6-f4e56d31569b', 'gokulrambalaji', 'gokulrambalaji@gmail.com', '8428796572', 'engineer') 
-ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at, is_sso_user, is_anonymous) 
-VALUES ('d00d2026-c15b-4ef4-81f6-f4e56d31569c', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'iitmadmin@iit.com', '$2a$10$FaqtO4/a5YVPYdCRl.C6QOlZ6fGd6cbmgpWp4Gmrs4DxjuikjHD2C', now(), '{"provider": "email", "providers": ["email"]}'::jsonb, '{"name":"iitmadmin","role":"admin","phone":"123"}'::jsonb, now(), now(), false, false) 
-ON CONFLICT (id) DO NOTHING;
+VALUES ('d00d2026-c15b-4ef4-81f6-f4e56d31569b', 'gokulrambalaji', 'gokulrambalaji@gmail.com', '8428796572', 'Engineer') 
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, email = EXCLUDED.email, phone = EXCLUDED.phone, role = EXCLUDED.role;
 
 INSERT INTO public.users (id, name, email, phone, role) 
-VALUES ('d00d2026-c15b-4ef4-81f6-f4e56d31569c', 'iitmadmin', 'iitmadmin@iit.com', '123', 'admin') 
-ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at, is_sso_user, is_anonymous) 
-VALUES ('d00d2026-c15b-4ef4-81f6-f4e56d31569d', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'mathu@iit.com', '$2a$10$E3caMmGoMSI3Ji8Yxl7mzeoA3eGxfEpVAmCDPSgIlmKOwT9zacyoS', now(), '{"provider": "email", "providers": ["email"]}'::jsonb, '{"name":"Madhu","role":"engineer","phone":"123"}'::jsonb, now(), now(), false, false) 
-ON CONFLICT (id) DO NOTHING;
+VALUES ('d00d2026-c15b-4ef4-81f6-f4e56d31569c', 'iitmadmin', 'iitmadmin@iit.com', '123', 'Admin') 
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, email = EXCLUDED.email, phone = EXCLUDED.phone, role = EXCLUDED.role;
 
 INSERT INTO public.users (id, name, email, phone, role) 
-VALUES ('d00d2026-c15b-4ef4-81f6-f4e56d31569d', 'Madhu', 'mathu@iit.com', '123', 'engineer') 
-ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at, is_sso_user, is_anonymous) 
-VALUES ('d00d2026-c15b-4ef4-81f6-f4e56d31569e', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'abc@abc', '$2a$10$Epz32co31sqw3c.DLkenJ.UOsMI/8KfZeyEsF5vUvYKuqpbtiuK6y', now(), '{"provider": "email", "providers": ["email"]}'::jsonb, '{"name":"mathu","role":"trainee","phone":"123"}'::jsonb, now(), now(), false, false) 
-ON CONFLICT (id) DO NOTHING;
+VALUES ('d00d2026-c15b-4ef4-81f6-f4e56d31569d', 'Madhu', 'mathu@iit.com', '123', 'Engineer') 
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, email = EXCLUDED.email, phone = EXCLUDED.phone, role = EXCLUDED.role;
 
 INSERT INTO public.users (id, name, email, phone, role) 
-VALUES ('d00d2026-c15b-4ef4-81f6-f4e56d31569e', 'mathu', 'abc@abc', '123', 'trainee') 
-ON CONFLICT (id) DO NOTHING;
+VALUES ('d00d2026-c15b-4ef4-81f6-f4e56d31569e', 'mathu', 'abc@abc', '123', 'Trainee') 
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, email = EXCLUDED.email, phone = EXCLUDED.phone, role = EXCLUDED.role;
 
 -- 2. Seeding Utilities
 INSERT INTO public.utilities (id, name) VALUES ('boiler', 'Boiler') ON CONFLICT (id) DO NOTHING;
