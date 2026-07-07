@@ -139,9 +139,8 @@ export default function LearningView({ instruments }) {
       <Dialog 
         open={!!selectedInstrument} 
         onOpenChange={(open) => !open && setSelectedInstrument(null)}
-        className="max-w-6xl w-[95vw] md:w-[90vw] max-h-[92vh] p-0"
       >
-        <DialogContent className="p-0 bg-card text-card-foreground">
+        <DialogContent className="max-w-5xl md:max-w-6xl w-[95vw] max-h-[90vh] overflow-y-auto p-0 bg-card text-card-foreground border shadow-2xl">
           {selectedInstrument && (() => {
             const images = getImages(selectedInstrument)
             const hasImages = images.length > 0
