@@ -43,10 +43,18 @@ const socket = io()
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(() => {
-    const saved = localStorage.getItem("iitm_user")
+    const saved = sessionStorage.getItem("iitm_user")
     return saved ? JSON.parse(saved) : null
   })
-  const [activeView, setActiveView] = useState("dashboard")
+  const [activeView, setActiveView] = useState(() => {
+    const savedView = sessionStorage.getItem("iitm_active_view")
+    return savedView || "dashboard"
+  })
+
+  // Save active view state to sessionStorage to survive page refreshes
+  useEffect(() => {
+    sessionStorage.setItem("iitm_active_view", activeView)
+  }, [activeView])
   const [instruments, setInstruments] = useState([])
   const [users, setUsers] = useState([])
   const [searchTerm, setSearchTerm] = useState("")
@@ -76,9 +84,11 @@ export default function App() {
   const currentUserId = currentUser ? currentUser.id : ""
 
   const handleLoginSuccess = (user) => {
-    localStorage.setItem("iitm_user", JSON.stringify(user))
+    sessionStorage.setItem("iitm_user", JSON.stringify(user))
     setCurrentUser(user)
-    setActiveView(user.role === "trainee" ? "learning" : "dashboard")
+    const initialView = user.role === "trainee" ? "learning" : "dashboard"
+    setActiveView(initialView)
+    sessionStorage.setItem("iitm_active_view", initialView)
     window.location.href = "/" // Clean reload to clear lag
   }
 
@@ -86,7 +96,8 @@ export default function App() {
     try {
       await fetch("/api/logout", { method: "POST" })
     } catch (_) {}
-    localStorage.removeItem("iitm_user")
+    sessionStorage.removeItem("iitm_user")
+    sessionStorage.removeItem("iitm_active_view")
     setCurrentUser(null)
     setActiveView("dashboard")
     window.location.href = "/" // Clean reload to clear lag
@@ -100,8 +111,9 @@ export default function App() {
         const data = await res.json()
         setInstruments(data)
       } else if (res.status === 401 || res.status === 403) {
-        // Session expired or stale localStorage — force re-login
-        localStorage.removeItem("iitm_user")
+        // Session expired or stale sessionStorage — force re-login
+        sessionStorage.removeItem("iitm_user")
+        sessionStorage.removeItem("iitm_active_view")
         setCurrentUser(null)
       }
     } catch (err) {
@@ -116,7 +128,8 @@ export default function App() {
         const data = await res.json()
         setUsers(data)
       } else if (res.status === 401 || res.status === 403) {
-        localStorage.removeItem("iitm_user")
+        sessionStorage.removeItem("iitm_user")
+        sessionStorage.removeItem("iitm_active_view")
         setCurrentUser(null)
       }
     } catch (err) {

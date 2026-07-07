@@ -26,15 +26,24 @@ app.use(express.static(path.join(__dirname, 'frontend/dist')));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Authentication and Authorization Middleware
-const authenticateToken = (req, res, next) => {
+const authenticateToken = async (req, res, next) => {
   const token = req.cookies.token;
   if (!token) return res.status(401).json({ error: 'Authentication required. Please log in.' });
 
-  jwt.verify(token, JWT_SECRET, (err, decoded) => {
-    if (err) return res.status(403).json({ error: 'Session expired or invalid token. Please log in again.' });
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const users = await db.getUsers();
+    const userExists = users.some(u => String(u.id) === String(decoded?.id));
+    if (!userExists) {
+      res.clearCookie('token');
+      return res.status(401).json({ error: 'Invalid user session. Please log in again.' });
+    }
     req.user = decoded; // { id, email, role }
     next();
-  });
+  } catch (err) {
+    res.clearCookie('token');
+    return res.status(403).json({ error: 'Session expired or invalid token. Please log in again.' });
+  }
 };
 
 const requireRole = (allowedRoles) => {

@@ -126,8 +126,21 @@ function generateId(prefix = '') {
 }
 
 function getLoggedInUser() {
-  const user = localStorage.getItem('iitm_user');
-  return user ? JSON.parse(user) : null;
+  const userStr = sessionStorage.getItem('iitm_user');
+  if (!userStr) return null;
+  try {
+    const userObj = JSON.parse(userStr);
+    const db = getDb();
+    const exists = db.users.some(u => String(u.id) === String(userObj.id));
+    if (!exists) {
+      sessionStorage.removeItem('iitm_user');
+      return null;
+    }
+    return userObj;
+  } catch (e) {
+    sessionStorage.removeItem('iitm_user');
+    return null;
+  }
 }
 
 // Date helpers
