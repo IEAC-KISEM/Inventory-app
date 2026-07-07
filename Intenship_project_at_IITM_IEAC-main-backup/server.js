@@ -425,14 +425,14 @@ app.post('/api/login', async (req, res) => {
 
 app.post('/api/users', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { name, email, phone, password, role } = req.body;
-  if (!name || !email || !phone || !password || !role) {
-    return res.status(400).json({ error: 'All fields (Name, Mail ID, Phone, Password, Role) are required.' });
+  if (!name || !email || !password || !role) {
+    return res.status(400).json({ error: 'Name, Mail ID, Password, and Role are required.' });
   }
   const existing = await db.getUserByEmail(email);
   if (existing) {
     return res.status(400).json({ error: 'Mail ID is already registered.' });
   }
-  const newUser = await db.insertUser({ name, email, phone, password, role: role.toLowerCase() });
+  const newUser = await db.insertUser({ name, email, phone: phone || '', password, role: role.toLowerCase() });
   const { password: _, ...sanitized } = newUser;
   res.json(sanitized);
 });
@@ -1070,15 +1070,17 @@ app.put('/api/users/:id', authenticateToken, requireRole(['admin']), async (req,
   const { id } = req.params;
   const { name, email, phone, password, role } = req.body;
 
-  // Only the primary admin (email = admin) can edit accounts
-  if ((req.user.email || '').toLowerCase() !== 'admin') {
-    return res.status(403).json({ error: 'Only the primary admin account can edit user accounts.' });
-  }
-
+  // Any admin can edit user accounts (removed hardcoded 'admin' email restriction)
   const users = await db.getUsers();
   const userToEdit = users.find(u => String(u.id) === String(id));
   if (!userToEdit) {
     return res.status(404).json({ error: 'User not found.' });
+  }
+
+  // Prevent editing primary admin account unless you ARE the primary admin
+  const isPrimaryAdmin = ['admin', 'admin@iitm.com'].includes((req.user.email || '').toLowerCase());
+  if (!isPrimaryAdmin && ['admin', 'admin@iitm.com'].includes((userToEdit.email || '').toLowerCase())) {
+    return res.status(403).json({ error: 'Only the primary admin can edit the primary admin account.' });
   }
 
   if (email && email.toLowerCase() !== userToEdit.email.toLowerCase()) {

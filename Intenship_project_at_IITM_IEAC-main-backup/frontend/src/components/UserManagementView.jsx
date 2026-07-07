@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { UserPlus, Users, Phone, Mail, KeyRound, User, CheckCircle2, AlertCircle, Trash2, Database, Download, AlertTriangle, Edit3 } from "lucide-react"
 
 export default function UserManagementView({ currentUser, offerDownload }) {
-  const isPrimaryAdmin = currentUser?.email?.toLowerCase() === "admin"
+  const isPrimaryAdmin = ['admin', 'admin@iitm.com'].includes((currentUser?.email || '').toLowerCase())
 
   const [users, setUsers] = useState([])
   const [name, setName] = useState("")
