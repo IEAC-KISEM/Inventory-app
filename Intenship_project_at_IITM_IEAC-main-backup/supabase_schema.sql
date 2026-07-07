@@ -51,13 +51,15 @@ CREATE TABLE IF NOT EXISTS public.products (
 
 -- 4. USERS TABLE
 CREATE TABLE IF NOT EXISTS public.users (
-  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  id UUID PRIMARY KEY,  -- matches auth.users id but no FK constraint for easier seeding
   name TEXT NOT NULL,
-  email TEXT NOT NULL UNIQUE,
+  email TEXT NOT NULL,
   phone TEXT,
   role TEXT NOT NULL CHECK (role IN ('Admin', 'Engineer', 'Trainee')),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+-- Unique index on email (partial - allows future null emails)
+CREATE UNIQUE INDEX IF NOT EXISTS users_email_partial_key ON public.users(email);
 
 -- 5. INVENTORY TABLE (Equipment / Instruments)
 CREATE TABLE IF NOT EXISTS public.inventory (
@@ -130,20 +132,36 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON public.audit_logs(created_a
 -- TRIGGER FOR AUTOMATED AUTH -> PUBLIC USER SYNCHRONIZATION
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
+DECLARE
+  v_role TEXT;
 BEGIN
+  -- Normalize role to match CHECK constraint
+  v_role := COALESCE(new.raw_user_meta_data->>'role', 'Engineer');
+  v_role := CASE 
+    WHEN LOWER(v_role) = 'admin' THEN 'Admin'
+    WHEN LOWER(v_role) = 'trainee' THEN 'Trainee'
+    ELSE 'Engineer'
+  END;
+
   INSERT INTO public.users (id, name, email, phone, role)
   VALUES (
     new.id,
     COALESCE(new.raw_user_meta_data->>'name', 'New User'),
     new.email,
     COALESCE(new.raw_user_meta_data->>'phone', ''),
-    COALESCE(new.raw_user_meta_data->>'role', 'Engineer')
-  );
+    v_role
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    name = EXCLUDED.name,
+    email = EXCLUDED.email,
+    phone = EXCLUDED.phone,
+    role = EXCLUDED.role;
   RETURN new;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE OR REPLACE TRIGGER on_auth_user_created
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
