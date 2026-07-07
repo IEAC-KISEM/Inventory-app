@@ -522,7 +522,7 @@ export default function BookingView({ instruments, searchTerm, currentUserId, cu
                         Book
                       </Button>
                     ) : (() => {
-                      // Check if active approved booking belongs to current user
+                      // Check if active approved booking belongs to current user (Admins can return any)
                       const isBookedByMe = myBookings.some(b => 
                         String(b.instrumentId) === String(it.id) && 
                         !b.returnedDate && 
@@ -530,7 +530,9 @@ export default function BookingView({ instruments, searchTerm, currentUserId, cu
                         String(b.userId) === String(currentUserId)
                       );
                       
-                      if (isBookedByMe) {
+                      const canReturn = isBookedByMe || currentUserRole === "admin";
+                      
+                      if (canReturn) {
                         return (
                           <Button size="sm" variant="outline" onClick={() => openReturnModal(it)} className="w-full sm:w-24 cursor-pointer">
                             Return

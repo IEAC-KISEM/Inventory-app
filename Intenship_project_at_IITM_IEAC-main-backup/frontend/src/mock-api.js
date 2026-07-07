@@ -810,16 +810,29 @@ window.fetch = async function (url, options = {}) {
       const err = requireAdmin();
       if (err) return err;
 
-      const bookingId = path.split('/')[3];
-      const { data: booking, error: fetchErr } = await supabase.from('purchase_orders').select('*').eq('id', bookingId).single();
-      if (fetchErr || !booking) return errorResponse('Booking request not found.', 404);
+      const reqId = path.split('/')[3];
+      
+      // Check if this is a bulk group
+      const { data: bulkBookings } = await supabase.from('purchase_orders').select('*').eq('bulk_group_id', reqId).eq('status', 'pending');
+      
+      if (bulkBookings && bulkBookings.length > 0) {
+        // Approve all in bulk group
+        const instrumentIds = bulkBookings.map(b => b.instrument_id);
+        await supabase.from('purchase_orders').update({ status: 'approved' }).eq('bulk_group_id', reqId);
+        await supabase.from('inventory').update({ status: 'booked', location: 'with_user' }).in('id', instrumentIds);
+        
+        await logAudit('APPROVE_BULK', 'purchase_orders', reqId, bulkBookings);
+      } else {
+        // Single booking approval
+        const { data: booking, error: fetchErr } = await supabase.from('purchase_orders').select('*').eq('id', reqId).single();
+        if (fetchErr || !booking) return errorResponse('Booking request not found.', 404);
 
-      const { error: approveErr } = await supabase.from('purchase_orders').update({ status: 'approved' }).eq('id', bookingId);
-      if (approveErr) return errorResponse(approveErr.message);
-
-      await supabase.from('inventory').update({ status: 'booked', location: 'with_user' }).eq('id', booking.instrument_id);
-
-      await logAudit('APPROVE', 'purchase_orders', bookingId, booking);
+        await supabase.from('purchase_orders').update({ status: 'approved' }).eq('id', reqId);
+        await supabase.from('inventory').update({ status: 'booked', location: 'with_user' }).eq('id', booking.instrument_id);
+        
+        await logAudit('APPROVE', 'purchase_orders', reqId, booking);
+      }
+      
       await broadcastMockUpdate();
       return jsonResponse({ ok: true });
     }
@@ -828,11 +841,28 @@ window.fetch = async function (url, options = {}) {
       const err = requireAdmin();
       if (err) return err;
 
-      const bookingId = path.split('/')[3];
-      const { data, error } = await supabase.from('purchase_orders').update({ status: 'denied' }).eq('id', bookingId).select().single();
-      if (error) return errorResponse(error.message);
+      const reqId = path.split('/')[3];
 
-      await logAudit('DENY', 'purchase_orders', bookingId, data);
+      // Check if this is a bulk group
+      const { data: bulkBookings } = await supabase.from('purchase_orders').select('*').eq('bulk_group_id', reqId).eq('status', 'pending');
+
+      if (bulkBookings && bulkBookings.length > 0) {
+        const instrumentIds = bulkBookings.map(b => b.instrument_id);
+        await supabase.from('purchase_orders').update({ status: 'denied' }).eq('bulk_group_id', reqId);
+        await supabase.from('inventory').update({ status: 'available', location: 'warehouse' }).in('id', instrumentIds);
+        
+        await logAudit('DENY_BULK', 'purchase_orders', reqId, bulkBookings);
+      } else {
+        // Single booking deny
+        const { data: booking, error: fetchErr } = await supabase.from('purchase_orders').select('*').eq('id', reqId).single();
+        if (fetchErr || !booking) return errorResponse('Booking request not found.', 404);
+
+        await supabase.from('purchase_orders').update({ status: 'denied' }).eq('id', reqId);
+        await supabase.from('inventory').update({ status: 'available', location: 'warehouse' }).eq('id', booking.instrument_id);
+        
+        await logAudit('DENY', 'purchase_orders', reqId, booking);
+      }
+
       await broadcastMockUpdate();
       return jsonResponse({ ok: true });
     }
