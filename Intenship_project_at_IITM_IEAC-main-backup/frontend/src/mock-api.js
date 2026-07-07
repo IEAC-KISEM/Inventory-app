@@ -757,26 +757,53 @@ window.fetch = async function (url, options = {}) {
     }
 
     if (path === '/api/booking-requests' && method === 'GET') {
-      const { data, error } = await supabase.from('purchase_orders').select('*').eq('status', 'pending');
+      const { data: rawBookings, error } = await supabase.from('purchase_orders').select('*').eq('status', 'pending');
       if (error) return errorResponse(error.message);
 
-      const { data: users } = await supabase.from('users').select('*');
-      const { data: instruments } = await supabase.from('inventory').select('*');
+      const { data: dbUsers } = await supabase.from('users').select('*');
+      const { data: dbInstruments } = await supabase.from('inventory').select('*');
 
-      const enriched = (data || []).map(b => {
-        const u = (users || []).find(x => x.id === b.user_id) || {};
-        const inst = (instruments || []).find(x => x.id === b.instrument_id) || {};
+      const bookings = snakeToCamel(rawBookings || []);
+      const users = snakeToCamel(dbUsers || []);
+      const instruments = snakeToCamel(dbInstruments || []);
+
+      // Group: key = bulkGroupId (for bulk) or bookingId (for single)
+      const groups = {};
+      for (const b of bookings) {
+        const key = b.bulkGroupId || b.id;
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(b);
+      }
+
+      const result = Object.entries(groups).map(([requestId, bookingsList]) => {
+        const first = bookingsList[0];
+        const userObj = users.find(u => String(u.id) === String(first.userId)) || {};
+        const isBulk = !!first.bulkGroupId;
+        const instrumentList = bookingsList.map(b => {
+          const inst = instruments.find(i => String(i.id) === String(b.instrumentId)) || {};
+          return {
+            bookingId: b.id,
+            id: inst.id || b.instrumentId,
+            name: inst.name || 'Unknown',
+            model: inst.model || 'N/A',
+            serial: inst.serial || 'N/A'
+          };
+        });
         return {
-          ...snakeToCamel(b),
-          userName: u.name || 'Unknown',
-          userEmail: u.email || 'Unknown',
-          instrumentName: inst.name || 'Unknown',
-          instrumentModel: inst.model || 'N/A',
-          instrumentSerial: inst.serial || 'N/A'
+          requestId,                       // bulkGroupId OR bookingId
+          type: isBulk ? 'bulk' : 'single',
+          userId: first.userId,
+          userName: userObj.name || 'Unknown User',
+          userEmail: userObj.email || 'N/A',
+          instruments: instrumentList,
+          startDate: first.startDate,
+          dueDate: first.dueDate,
+          remarks: first.remarks,
+          status: 'pending'
         };
       });
 
-      return jsonResponse(enriched);
+      return jsonResponse(result);
     }
 
     if (path.includes('/api/booking-requests/') && path.endsWith('/approve') && method === 'POST') {
