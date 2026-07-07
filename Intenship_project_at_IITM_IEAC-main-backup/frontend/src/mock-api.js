@@ -1,335 +1,57 @@
-// Client-Side Simulated API Layer for Netlify Serverless Deployment
+// Client-Side Simulated API Layer for Netlify Serverless Deployment backed by Supabase
 import ExcelJS from 'exceljs';
 import bcrypt from 'bcryptjs';
-import mqtt from 'mqtt';
-import { socket } from './mock-socket';
+import { supabase, adminAuthClient } from './lib/supabase';
 
-// Default data seeded from data.json
-import SEEDED_DATA from './data.json';
-
-// Unique client ID for this browser tab/window to avoid echo loops
-if (import.meta.env.VITE_USE_MOCK !== 'false') {
-
-const SYNC_CLIENT_ID = 'client_' + Math.random().toString(36).substring(2, 15);
-const SYNC_TOPIC = 'iitm/asset-management/sync/v1/GokulramBalaji';
-
-let mqttClient = null;
-
-// Simple browser-compatible base64 encryption/decryption simulator
-function encrypt(text) {
-  if (!text) return text;
-  if (text.startsWith('enc:')) return text;
-  try {
-    return 'enc:' + btoa(unescape(encodeURIComponent(text)));
-  } catch (e) {
-    return text;
+// Helper to convert DB snake_case to frontend camelCase
+function snakeToCamel(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(snakeToCamel);
+  const newObj = {};
+  for (const key of Object.keys(obj)) {
+    const camelKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+    newObj[camelKey] = snakeToCamel(obj[key]);
   }
+  return newObj;
 }
 
-function decrypt(text) {
-  if (!text || !text.startsWith('enc:')) return text;
-  try {
-    return decodeURIComponent(escape(atob(text.substring(4))));
-  } catch (e) {
-    return text;
+// Helper to convert frontend camelCase to DB snake_case
+function camelToSnake(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(camelToSnake);
+  const newObj = {};
+  for (const key of Object.keys(obj)) {
+    const snakeKey = key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+    newObj[snakeKey] = camelToSnake(obj[key]);
   }
+  return newObj;
 }
 
-// Initialise Database in LocalStorage
-function getDb() {
-  const local = localStorage.getItem('iitm_db');
-  let data;
-  if (!local) {
-    data = { ...SEEDED_DATA, lastUpdatedTime: Date.now() };
-  } else {
-    data = JSON.parse(local);
-  }
-  
-  // Migration: Ensure user details are encrypted in simulated DB
-  let updated = false;
-  if (data.users) {
-    for (const u of data.users) {
-      if (u.name && !u.name.startsWith('enc:')) {
-        u.name = encrypt(u.name);
-        updated = true;
-      }
-      if (u.email && !u.email.startsWith('enc:')) {
-        u.email = encrypt(u.email);
-        updated = true;
-      }
-      if (u.phone && !u.phone.startsWith('enc:')) {
-        u.phone = encrypt(u.phone);
-        updated = true;
-      }
-    }
-  }
-  
-  if (!local || updated) {
-    localStorage.setItem('iitm_db', JSON.stringify(data));
-  }
-  return data;
-}
-
-function writeDb(data) {
-  const timestamp = Date.now();
-  data.lastUpdatedTime = timestamp;
-  localStorage.setItem('iitm_db', JSON.stringify(data));
-  
-  // Broadcast update to the local frontend app (commented out to disable real-time)
-  // setTimeout(() => {
-  //   socket.emit('data_updated');
-  //   socket.emit('instruments', data.instruments || []);
-  //   socket.emit('bookings');
-  // }, 50);
-
-  // Publish update to the cloud broker for other users (commented out to disable real-time)
-  // if (mqttClient && mqttClient.connected) {
-  //   try {
-  //     const payload = {
-  //       senderId: SYNC_CLIENT_ID,
-  //       timestamp: timestamp,
-  //       data: data
-  //     };
-  //     mqttClient.publish(SYNC_TOPIC, JSON.stringify(payload), { qos: 1 });
-  //   } catch (err) {
-  //     console.error('Failed to publish sync message:', err);
-  //   }
-  // }
-}
-
-// Setup real-time connection (commented out to disable real-time)
-// try {
-//   mqttClient = mqtt.connect('wss://broker.hivemq.com:8884/mqtt', {
-//     clientId: SYNC_CLIENT_ID,
-//     clean: true,
-//     connectTimeout: 4000,
-//     reconnectPeriod: 2000,
-//   });
-// 
-//   mqttClient.on('connect', () => {
-//     console.log('Real-time sync: connected to cloud broker.');
-//     mqttClient.subscribe(SYNC_TOPIC);
-//   });
-// 
-//   mqttClient.on('message', (topic, message) => {
-//     try {
-//       const payload = JSON.parse(message.toString());
-//       if (payload.senderId === SYNC_CLIENT_ID) return; // Ignore own message
-// 
-//       console.log('Real-time sync: received database update from another user.');
-//       const localDb = getDb();
-// 
-//       // Last-Write-Wins (LWW) conflict resolution
-//       if (!localDb.lastUpdatedTime || payload.timestamp > localDb.lastUpdatedTime) {
-//         const remoteDb = payload.data;
-//         remoteDb.lastUpdatedTime = payload.timestamp;
-//         localStorage.setItem('iitm_db', JSON.stringify(remoteDb));
-//         
-//         // Trigger React UI updates on other clients
-//         socket.emit('data_updated');
-//         socket.emit('instruments', remoteDb.instruments || []);
-//         socket.emit('bookings');
-//       }
-//     } catch (err) {
-//       console.error('Failed to parse sync message:', err);
-//     }
-//   });
-// 
-//   mqttClient.on('error', (err) => {
-//     console.error('Real-time sync error:', err);
-//   });
-// } catch (err) {
-//   console.error('Failed to initialize real-time sync:', err);
-// }
-
-// Seed admin user if it doesn't exist, or migrate admin password if it does
-const dbData = getDb();
-if (!dbData.users || dbData.users.length === 0) {
-  dbData.users = [
-    {
-      id: 'admin',
-      name: encrypt('Administrator'),
-      email: encrypt('admin'),
-      phone: encrypt('1234567890'),
-      password: '$2b$10$oIAvTslehwcmWHATnLLKrOTAX3OA8JAZTOqD0ZePHc2htPkhTd2fW', // hashed admin password
-      role: 'admin'
-    }
-  ];
-  writeDb(dbData);
-} else {
-  const existingAdmin = dbData.users.find(u => String(decrypt(u.email)).toLowerCase() === 'admin');
-  if (existingAdmin) {
-    existingAdmin.password = '$2b$10$oIAvTslehwcmWHATnLLKrOTAX3OA8JAZTOqD0ZePHc2htPkhTd2fW';
-    writeDb(dbData);
-  }
-}
-
-// Unique ID Generator
-function generateId(prefix = '') {
-  return prefix + Math.random().toString(36).substring(2, 10).toUpperCase();
-}
-
-function getLoggedInUser() {
-  const userStr = sessionStorage.getItem('iitm_user');
-  if (!userStr) return null;
-  try {
-    const userObj = JSON.parse(userStr);
-    const db = getDb();
-    const exists = db.users.some(u => String(u.id) === String(userObj.id));
-    if (!exists) {
-      sessionStorage.removeItem('iitm_user');
-      return null;
-    }
-    return userObj;
-  } catch (e) {
-    sessionStorage.removeItem('iitm_user');
-    return null;
-  }
-}
-
-// Date helpers
+// Helper to format date string safely
 const safeDateString = (dateVal, fallback = 'N/A') => {
   if (!dateVal) return fallback;
   const d = new Date(dateVal);
   return isNaN(d.getTime()) ? fallback : d.toLocaleDateString();
 };
 
-function findCurrentApprovedBooking(bookings, instrumentId) {
-  const now = new Date();
-  const approved = bookings
-    .filter(b => String(b.instrumentId) === String(instrumentId) && !b.returnedDate && b.status === 'approved')
-    .sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
-
-  const active = approved.filter(b => {
-    const start = new Date(b.startDate);
-    const due = new Date(b.dueDate);
-    return start <= now && due >= now;
-  });
-  if (active.length > 0) {
-    return active[active.length - 1];
-  }
-
-  const overdue = approved.filter(b => new Date(b.dueDate) < now);
-  if (overdue.length > 0) {
-    return overdue[overdue.length - 1];
-  }
-
-  if (approved.length > 0) {
-    return approved[0];
-  }
-
-  return null;
-}
-
-function getInstrumentsWithBookings(db) {
-  const instruments = db.instruments || [];
-  const bookings = db.bookings || [];
-  const users = db.users || [];
-
-  return instruments.map(inst => {
-    const activeBooking = findCurrentApprovedBooking(bookings, inst.id);
-
-    let bookedBy = null;
-    let nextAvailableDate = null;
-    if (activeBooking) {
-      const user = users.find(u => String(u.id) === String(activeBooking.userId));
-      bookedBy = user ? user.name : 'Unknown User';
-      nextAvailableDate = activeBooking.dueDate;
-    }
-
-    const futureBookings = bookings
-      .filter(b => 
-        String(b.instrumentId) === String(inst.id) && 
-        !b.returnedDate && 
-        (b.status === 'approved' || b.status === 'pending') &&
-        (!activeBooking || b.id !== activeBooking.id)
-      )
-      .sort((a, b) => new Date(a.startDate) - new Date(b.startDate))
-      .map(b => {
-        const user = users.find(u => String(u.id) === String(b.userId));
-        return {
-          id: b.id,
-          userName: user ? user.name : 'Unknown User',
-          userId: b.userId,
-          status: b.status,
-          startDate: b.startDate,
-          dueDate: b.dueDate
-        };
-      });
-
-    const nextBooking = futureBookings.length > 0 ? futureBookings[0] : null;
-
-    return {
-      ...inst,
-      bookedBy,
-      nextAvailableDate,
-      futureBookings,
-      nextBooking
-    };
-  });
-}
-
-async function handleInstrumentReturnTransition(db, instrumentId, returnedBookingId) {
-  // Find approved future pre-bookings for this instrument (excluding the returned one)
-  const approvedPre = db.bookings
-    .filter(b => 
-      String(b.instrumentId) === String(instrumentId) && 
-      !b.returnedDate && 
-      b.status === 'approved' && 
-      b.id !== returnedBookingId
-    )
-    .sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
-
-  const inst = db.instruments.find(i => String(i.id) === String(instrumentId));
-  if (!inst) return;
-
-  if (approvedPre.length > 0) {
-    inst.status = 'booked';
-    inst.location = 'with_user';
-  } else {
-    // Check if there are any pending pre-bookings
-    const pendingPre = db.bookings.filter(b => 
-      String(b.instrumentId) === String(instrumentId) && 
-      !b.returnedDate && 
-      b.status === 'pending'
-    );
-    if (pendingPre.length > 0) {
-      inst.status = 'requested';
-      inst.location = 'warehouse';
-    } else {
-      inst.status = 'available';
-      inst.location = 'warehouse';
-    }
-  }
-}
-
-// Dynamic XLSX Generation helpers in client
-async function generateBookingExcel(targetBookings, instruments, users, isBulk) {
+// Spreadsheet generation for booking details
+async function generateBookingExcel(targetBookings, instrumentsList, usersList, isBulk) {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet(isBulk ? 'Bookings' : 'Booking');
-  
+  sheet.views = [{ showGridLines: true }];
+
   // Headers
   sheet.addRow([
-    'SNo', 
-    'Instrument Name', 
-    'Model', 
-    'Serial', 
-    'Booked By', 
-    'Start Date', 
-    'Due Date', 
-    'Previous Insight', 
-    'Remarks', 
-    'Returned Date', 
-    'Returned By', 
-    'Return Notes'
+    'SNo', 'Instrument Name', 'Model', 'Serial', 'Booked By', 'Start Date', 'Due Date',
+    'Previous Insight', 'Remarks', 'Returned Date', 'Returned By', 'Return Notes'
   ]);
 
   let idx = 1;
   for (const b of targetBookings) {
-    const inst = instruments.find(i => String(i.id) === String(b.instrumentId)) || {};
-    const user = users.find(u => String(u.id) === String(b.userId)) || {};
+    const inst = instrumentsList.find(i => String(i.id) === String(b.instrumentId)) || {};
+    const user = usersList.find(u => String(u.id) === String(b.userId)) || {};
     const prev = inst.lastInsight || '';
-    
+
     sheet.addRow([
       idx++,
       inst.name || 'Unknown',
@@ -346,43 +68,128 @@ async function generateBookingExcel(targetBookings, instruments, users, isBulk) 
     ]);
   }
 
-  if (isBulk && targetBookings.length > 0) {
-    const calSheet = workbook.addWorksheet('CalibrationDue');
-    calSheet.addRow(['SNo', 'Instrument Name', 'Model', 'Serial', 'Next Calibration Date', 'Days Left']);
-    const now = new Date();
-    const cutoff = new Date(now.getTime() + 15 * 24 * 3600 * 1000);
-    let cidx = 1;
-    instruments.forEach(i => {
-      if (i.nextCalibrationDate) {
-        const nd = new Date(i.nextCalibrationDate);
-        if (nd >= now && nd <= cutoff) {
-          calSheet.addRow([cidx++, i.name, i.model, i.serial, i.nextCalibrationDate, Math.ceil((nd - now) / (24 * 3600 * 1000))]);
+  const titleFont = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFF' } };
+  const fillPrimary = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1E3A8A' } };
+  const borderThin = {
+    top: { style: 'thin', color: { argb: 'D1D5DB' } },
+    left: { style: 'thin', color: { argb: 'D1D5DB' } },
+    bottom: { style: 'thin', color: { argb: 'D1D5DB' } },
+    right: { style: 'thin', color: { argb: 'D1D5DB' } }
+  };
+
+  const headerRow = sheet.getRow(1);
+  headerRow.height = 24;
+  for (let i = 1; i <= 12; i++) {
+    const cell = headerRow.getCell(i);
+    cell.font = titleFont;
+    cell.fill = fillPrimary;
+    cell.alignment = { vertical: 'middle', horizontal: 'left' };
+    cell.border = borderThin;
+  }
+
+  // Format data rows
+  sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    if (rowNumber > 1) {
+      row.height = 20;
+      for (let i = 1; i <= 12; i++) {
+        const cell = row.getCell(i);
+        cell.font = { name: 'Arial', size: 10 };
+        cell.border = borderThin;
+        cell.alignment = { vertical: 'middle' };
+      }
+    }
+  });
+
+  // Dynamic sheets for bulk groups
+  if (isBulk) {
+    try {
+      const calSheet = workbook.addWorksheet('CalibrationDue');
+      calSheet.views = [{ showGridLines: true }];
+      calSheet.addRow(['SNo', 'Instrument Name', 'Model', 'Serial', 'Next Calibration Date', 'Days Left']);
+
+      const now = new Date();
+      const cutoff = new Date(now.getTime() + 15 * 24 * 3600 * 1000);
+      let cidx = 1;
+
+      instrumentsList.forEach(i => {
+        if (i.nextCalibrationDate) {
+          const nd = new Date(i.nextCalibrationDate);
+          if (nd >= now && nd <= cutoff) {
+            calSheet.addRow([
+              cidx++, i.name, i.model, i.serial, i.nextCalibrationDate,
+              Math.ceil((nd - now) / (24 * 3600 * 1000))
+            ]);
+          }
+        }
+      });
+
+      const calHeaderRow = calSheet.getRow(1);
+      calHeaderRow.height = 24;
+      for (let i = 1; i <= 6; i++) {
+        const cell = calHeaderRow.getCell(i);
+        cell.font = titleFont;
+        cell.fill = fillPrimary;
+        cell.alignment = { vertical: 'middle', horizontal: 'left' };
+        cell.border = borderThin;
+      }
+      calSheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+        if (rowNumber > 1) {
+          row.height = 20;
+          for (let i = 1; i <= 6; i++) {
+            const cell = row.getCell(i);
+            cell.font = { name: 'Arial', size: 10 };
+            cell.border = borderThin;
+          }
+        }
+      });
+
+      const firstB = targetBookings[0];
+      const user = usersList.find(u => String(u.id) === String(firstB.userId)) || { name: 'Unknown User' };
+      const sum = workbook.addWorksheet('Summary');
+      sum.views = [{ showGridLines: true }];
+      sum.addRow(['TotalBooked', targetBookings.length]);
+      sum.addRow(['BookedBy', user.name]);
+      sum.addRow(['StartDate', safeDateString(firstB.startDate)]);
+      sum.addRow(['DueDate', safeDateString(firstB.dueDate)]);
+      sum.addRow(['Remarks', firstB.remarks || '']);
+
+      sum.eachRow({ includeEmpty: false }, (row) => {
+        row.getCell(1).font = { name: 'Arial', size: 10, bold: true };
+        row.getCell(2).font = { name: 'Arial', size: 10 };
+        row.getCell(1).border = borderThin;
+        row.getCell(2).border = borderThin;
+      });
+    } catch (err) {
+      console.error('failed calibration/summary sheet', err);
+    }
+  }
+
+  sheet.columns.forEach(column => {
+    let maxLen = 12;
+    column.eachCell({ includeEmpty: true }, cell => {
+      if (cell.value) {
+        const valStr = cell.value.toString();
+        if (valStr.length > maxLen && !cell.address.includes('1')) {
+          maxLen = valStr.length;
         }
       }
     });
-
-    const firstB = targetBookings[0];
-    const user = users.find(u => String(u.id) === String(firstB.userId)) || { name: 'Unknown User' };
-    const sum = workbook.addWorksheet('Summary');
-    sum.addRow(['TotalBooked', targetBookings.length]);
-    sum.addRow(['BookedBy', user.name]);
-    sum.addRow(['StartDate', safeDateString(firstB.startDate)]);
-    sum.addRow(['DueDate', safeDateString(firstB.dueDate)]);
-    sum.addRow(['Remarks', firstB.remarks || '']);
-  }
+    column.width = Math.min(maxLen + 3, 35);
+  });
 
   const buffer = await workbook.xlsx.writeBuffer();
   return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
-async function generateVendorsExcel(vendorIds, db) {
+// Spreadsheet generation for vendors directory
+async function generateVendorsExcel(vendorIds, customDb) {
   const workbook = new ExcelJS.Workbook();
 
   for (const vId of vendorIds) {
-    const vendor = (db.vendors || []).find(v => String(v.id) === String(vId));
+    const vendor = (customDb.vendors || []).find(v => String(v.id) === String(vId));
     if (!vendor) continue;
 
-    const products = (db.products || []).filter(p => String(p.vendorId) === String(vId));
+    const products = (customDb.products || []).filter(p => String(p.vendorId) === String(vId));
     
     let sheetName = (vendor.name || 'Vendor').replace(/[*?:/\\\\[\]]/g, '');
     if (sheetName.length > 30) {
@@ -406,7 +213,7 @@ async function generateVendorsExcel(vendorIds, db) {
       right: { style: 'thin', color: { argb: 'D1D5DB' } }
     };
 
-    // Title Block
+    // Title block
     sheet.mergeCells('A1:D1');
     const titleRow = sheet.getRow(1);
     titleRow.getCell(1).value = `Vendor Details: ${vendor.name || ''}`;
@@ -517,7 +324,9 @@ async function generateVendorsExcel(vendorIds, db) {
   return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
-// Intercept Global fetch
+// ----------------------------------------------------
+// Global Interceptor logic for serverless deployment
+// ----------------------------------------------------
 const originalFetch = window.fetch;
 window.fetch = async function (url, options = {}) {
   const urlStr = typeof url === 'string' ? url : url.url || '';
@@ -539,13 +348,21 @@ window.fetch = async function (url, options = {}) {
     } catch (_) {}
   }
 
-  console.log(`[MOCK FETCH] ${method} ${path}`, { query, body });
+  console.log(`[SUPABASE API INTERCEPTOR] ${method} ${path}`, { query, body });
 
-  // Load state database
-  const db = getDb();
+  // Helpers to fetch current logged-in user profile cached in sessionStorage
+  const getLoggedInUser = () => {
+    const userStr = sessionStorage.getItem('iitm_user');
+    if (!userStr) return null;
+    try {
+      return JSON.parse(userStr);
+    } catch (e) {
+      return null;
+    }
+  };
+
   const user = getLoggedInUser();
 
-  // Helper response builder
   const jsonResponse = (data, status = 200) => {
     return new Response(JSON.stringify(data), {
       status,
@@ -557,13 +374,12 @@ window.fetch = async function (url, options = {}) {
     return jsonResponse({ error: msg }, status);
   };
 
-  // Auth Guard check (mimics authenticateToken in backend)
+  // Auth Guard checking
   const isAuthRequired = path !== '/api/login' && path !== '/api/logout';
   if (isAuthRequired && !user) {
     return errorResponse('Authentication required.', 401);
   }
 
-  // Admin Role check helper
   const requireAdmin = () => {
     if (!user || (user.role || '').toLowerCase() !== 'admin') {
       return errorResponse('Access denied. Admin role required.', 403);
@@ -571,600 +387,406 @@ window.fetch = async function (url, options = {}) {
     return null;
   };
 
+  // Audit logger
+  async function logAudit(action, tableName, recordId, details) {
+    if (!user) return;
+    try {
+      await supabase.from('audit_logs').insert({
+        user_id: user.id,
+        user_email: user.email,
+        action,
+        table_name: tableName,
+        record_id: recordId ? String(recordId) : null,
+        details: typeof details === 'object' ? JSON.stringify(details) : details
+      });
+    } catch (err) {
+      console.error('Audit logger failed:', err);
+    }
+  }
+
+  // Instrument join helper
+  async function getInstrumentsWithBookings() {
+    const { data: instruments, error: instErr } = await supabase.from('inventory').select('*');
+    if (instErr) throw instErr;
+
+    const { data: bookings } = await supabase.from('purchase_orders').select('*');
+    const { data: users } = await supabase.from('users').select('*');
+
+    const mappedInstruments = snakeToCamel(instruments || []);
+    const mappedBookings = snakeToCamel(bookings || []);
+    const mappedUsers = snakeToCamel(users || []);
+
+    return mappedInstruments.map(inst => {
+      // Find active approved booking for the instrument
+      const activeBooking = mappedBookings.find(b => 
+        String(b.instrumentId) === String(inst.id) && 
+        !b.returnedDate && 
+        b.status === 'approved'
+      );
+
+      let bookedBy = null;
+      let nextAvailableDate = null;
+      if (activeBooking) {
+        const u = mappedUsers.find(x => String(x.id) === String(activeBooking.userId));
+        bookedBy = u ? u.name : 'Unknown User';
+        nextAvailableDate = activeBooking.dueDate;
+      }
+
+      const futureBookings = mappedBookings
+        .filter(b => 
+          String(b.instrumentId) === String(inst.id) && 
+          !b.returnedDate && 
+          (b.status === 'approved' || b.status === 'pending') &&
+          (!activeBooking || b.id !== activeBooking.id)
+        )
+        .sort((a, b) => new Date(a.startDate) - new Date(b.startDate))
+        .map(b => {
+          const u = mappedUsers.find(x => String(x.id) === String(b.userId));
+          return {
+            id: b.id,
+            userName: u ? u.name : 'Unknown User',
+            userId: b.userId,
+            status: b.status,
+            startDate: b.startDate,
+            dueDate: b.dueDate,
+            remarks: b.remarks
+          };
+        });
+
+      return {
+        ...inst,
+        bookedBy,
+        nextAvailableDate,
+        futureBookings,
+        nextBooking: futureBookings.length > 0 ? futureBookings[0] : null
+      };
+    });
+  }
+
   try {
-    // --- AUTHENTICATION ---
+    // --- 1. AUTHENTICATION & LOGIN ---
     if (path === '/api/login' && method === 'POST') {
       const { email, password } = body;
-      const foundUser = db.users.find(u => String(decrypt(u.email)).toLowerCase() === String(email).toLowerCase());
-      if (!foundUser) {
-        return errorResponse('Invalid credentials. User not found.', 401);
-      }
-      
-      let passwordMatched = false;
-      if (foundUser.password.startsWith('$2a$') || foundUser.password.startsWith('$2b$')) {
-        passwordMatched = await bcrypt.compare(password, foundUser.password);
-      } else {
-        passwordMatched = (password === foundUser.password);
-      }
+      const finalEmail = email.includes('@') ? email : `${email}@iitm.com`;
 
-      if (!passwordMatched) {
-        return errorResponse('Invalid password.', 401);
-      }
-
-      return jsonResponse({
-        id: foundUser.id,
-        name: decrypt(foundUser.name),
-        email: decrypt(foundUser.email),
-        role: foundUser.role
+      const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({
+        email: finalEmail,
+        password
       });
+
+      if (authErr) {
+        return errorResponse(authErr.message || 'Invalid credentials.', 401);
+      }
+
+      // Fetch user profile from public.users table
+      const { data: profile } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', authData.user.id)
+        .maybeSingle();
+
+      const sessionUser = {
+        id: authData.user.id,
+        name: profile ? profile.name : (authData.user.user_metadata?.name || email),
+        email: finalEmail,
+        phone: profile ? profile.phone : (authData.user.user_metadata?.phone || ''),
+        role: profile ? profile.role : (authData.user.user_metadata?.role || 'Engineer')
+      };
+
+      sessionStorage.setItem('iitm_user', JSON.stringify(sessionUser));
+      return jsonResponse(sessionUser);
     }
 
     if (path === '/api/logout' && method === 'POST') {
+      await supabase.auth.signOut();
+      sessionStorage.removeItem('iitm_user');
+      sessionStorage.removeItem('iitm_active_view');
       return jsonResponse({ ok: true });
     }
 
-    // --- USERS MANAGEMENT ---
+    // --- 2. USER MANAGEMENT ---
     if (path === '/api/users') {
       if (method === 'GET') {
-        const decryptedUsers = db.users.map(u => ({
-          ...u,
-          name: decrypt(u.name),
-          email: decrypt(u.email),
-          phone: decrypt(u.phone)
-        }));
-        return jsonResponse(decryptedUsers);
+        const { data, error } = await supabase.from('users').select('*');
+        if (error) return errorResponse(error.message);
+        return jsonResponse(snakeToCamel(data));
       }
+
       if (method === 'POST') {
         const err = requireAdmin();
         if (err) return err;
 
         const { name, email, phone, password, role } = body;
-        const exists = db.users.some(u => String(decrypt(u.email)).toLowerCase() === String(email).toLowerCase());
-        if (exists) return errorResponse('A user with this email already exists.');
+        const finalEmail = email.includes('@') ? email : `${email}@iitm.com`;
 
-        const newUser = {
-          id: generateId('USR'),
-          name: encrypt(name),
-          email: encrypt(email),
-          phone: encrypt(phone),
-          password: await bcrypt.hash(password, 10),
-          role
-        };
-        db.users.push(newUser);
-        writeDb(db);
-        return jsonResponse({
-          id: newUser.id,
-          name,
-          email,
-          phone,
-          role: newUser.role
+        // Register user via secondary client with persistSession: false
+        const { data: regData, error: regErr } = await adminAuthClient.auth.signUp({
+          email: finalEmail,
+          password,
+          options: {
+            data: { name, phone, role }
+          }
         });
+
+        if (regErr) return errorResponse(regErr.message);
+
+        // Try reading public.users for trigger completion, else insert manually
+        let profile = null;
+        for (let i = 0; i < 5; i++) {
+          const { data } = await supabase.from('users').select('*').eq('id', regData.user.id).maybeSingle();
+          if (data) {
+            profile = data;
+            break;
+          }
+          await new Promise(r => setTimeout(r, 200));
+        }
+
+        if (!profile) {
+          const { data, error } = await supabase
+            .from('users')
+            .insert({
+              id: regData.user.id,
+              name,
+              email: finalEmail,
+              phone,
+              role
+            })
+            .select()
+            .single();
+          if (error) return errorResponse(error.message);
+          profile = data;
+        }
+
+        await logAudit('CREATE', 'users', profile.id, profile);
+        return jsonResponse(snakeToCamel(profile));
       }
-    }
-
-    if (path.startsWith('/api/users/') && method === 'DELETE') {
-      const err = requireAdmin();
-      if (err) return err;
-
-      const userId = path.split('/').pop();
-      const targetUser = db.users.find(u => String(u.id) === String(userId));
-      if (!targetUser) return errorResponse('User not found.', 404);
-
-      if ((decrypt(targetUser.email) || '').toLowerCase() === 'admin') {
-        return errorResponse('Cannot delete the primary admin account.');
-      }
-
-      db.users = db.users.filter(u => String(u.id) !== String(userId));
-      writeDb(db);
-      return jsonResponse({ ok: true });
     }
 
     if (path.startsWith('/api/users/') && method === 'PUT') {
       const err = requireAdmin();
       if (err) return err;
 
-      // Only the primary admin (email = admin) can edit user accounts
-      if (!user || (user.email || '').toLowerCase() !== 'admin') {
-        return errorResponse('Only the primary admin account can edit user accounts.', 403);
-      }
+      const targetUserId = path.split('/').pop();
+      const { name, email, phone, role } = body;
 
-      const userId = path.split('/').pop();
-      const targetUser = db.users.find(u => String(u.id) === String(userId));
-      if (!targetUser) return errorResponse('User not found.', 404);
+      const payload = {};
+      if (name !== undefined) payload.name = name;
+      if (email !== undefined) payload.email = email.includes('@') ? email : `${email}@iitm.com`;
+      if (phone !== undefined) payload.phone = phone;
+      if (role !== undefined) payload.role = role;
 
-      const { name, email, phone, password, role } = body;
+      const { data, error } = await supabase.from('users').update(payload).eq('id', targetUserId).select().single();
+      if (error) return errorResponse(error.message);
 
-      if (email && email.toLowerCase() !== decrypt(targetUser.email).toLowerCase()) {
-        const exists = db.users.some(u => String(decrypt(u.email)).toLowerCase() === String(email).toLowerCase());
-        if (exists) return errorResponse('A user with this email already exists.');
-      }
-
-      if (name !== undefined) targetUser.name = encrypt(name);
-      if (email !== undefined) targetUser.email = encrypt(email);
-      if (phone !== undefined) targetUser.phone = encrypt(phone);
-      if (role !== undefined) targetUser.role = role.toLowerCase();
-      if (password) {
-        targetUser.password = await bcrypt.hash(password, 10);
-      }
-
-      writeDb(db);
-      return jsonResponse({
-        id: targetUser.id,
-        name: decrypt(targetUser.name),
-        email: decrypt(targetUser.email),
-        phone: decrypt(targetUser.phone),
-        role: targetUser.role
-      });
+      await logAudit('UPDATE', 'users', targetUserId, payload);
+      return jsonResponse(snakeToCamel(data));
     }
 
-    // --- INSTRUMENTS / EQUIPMENT CRUD ---
+    if (path.startsWith('/api/users/') && method === 'DELETE') {
+      const err = requireAdmin();
+      if (err) return err;
+
+      const targetUserId = path.split('/').pop();
+      const { error } = await supabase.from('users').delete().eq('id', targetUserId);
+      if (error) return errorResponse(error.message);
+
+      await logAudit('DELETE', 'users', targetUserId, { id: targetUserId });
+      return jsonResponse({ ok: true });
+    }
+
+    // --- 3. INSTRUMENTS (INVENTORY) ---
     if (path === '/api/instruments') {
       if (method === 'GET') {
-        const enriched = getInstrumentsWithBookings(db);
+        const enriched = await getInstrumentsWithBookings();
         return jsonResponse(enriched);
       }
+
       if (method === 'POST') {
         const err = requireAdmin();
         if (err) return err;
 
-        const id = generateId('INST');
-        const defaults = {
-          productImages: [],
-          productOverview: '',
-          specifications: '',
-          parametersMeasured: '',
-          accuracy: '',
-          measurementRange: '',
-          resolution: '',
-          applications: '',
-          operatingProcedure: '',
-          calibrationProcedure: '',
-          safetyInstructions: '',
-          userManualUrl: '',
-          youtubeUrl: '',
-          lastCalibrationDate: null,
-          nextCalibrationDate: null,
-          calibrationCertificateUrl: '',
-          calibrationCycleDays: 365
-        };
-        const newInst = { id, status: 'available', location: 'warehouse', ...defaults, ...body };
-        db.instruments.push(newInst);
-        writeDb(db);
-        return jsonResponse(newInst);
+        const id = 'INST' + Math.random().toString(36).substring(2, 7).toUpperCase();
+        const payload = camelToSnake({ id, ...body, status: 'available', location: 'warehouse' });
+
+        const { data, error } = await supabase.from('inventory').insert(payload).select().single();
+        if (error) return errorResponse(error.message);
+
+        await logAudit('CREATE', 'inventory', id, payload);
+        return jsonResponse(snakeToCamel(data));
       }
     }
 
-    if (path.startsWith('/api/instruments/')) {
-      const id = path.split('/').pop();
-      const instIndex = db.instruments.findIndex(i => String(i.id) === String(id));
-      if (instIndex === -1) return errorResponse('Instrument not found.', 404);
+    if (path.startsWith('/api/instruments/') && method === 'PUT') {
+      const err = requireAdmin();
+      if (err) return err;
 
-      if (method === 'PUT') {
-        const err = requireAdmin();
-        if (err) return err;
+      const instId = path.split('/').pop();
+      const payload = camelToSnake(body);
 
-        db.instruments[instIndex] = { ...db.instruments[instIndex], ...body };
-        writeDb(db);
-        return jsonResponse(db.instruments[instIndex]);
-      }
+      const { data, error } = await supabase.from('inventory').update(payload).eq('id', instId).select().single();
+      if (error) return errorResponse(error.message);
 
-      if (method === 'DELETE') {
-        const err = requireAdmin();
-        if (err) return err;
-
-        db.instruments = db.instruments.filter(i => String(i.id) !== String(id));
-        writeDb(db);
-        return jsonResponse({ ok: true });
-      }
+      await logAudit('UPDATE', 'inventory', instId, payload);
+      return jsonResponse(snakeToCamel(data));
     }
 
-    // --- SINGLE AND BULK BOOKING API ---
+    if (path.startsWith('/api/instruments/') && method === 'DELETE') {
+      const err = requireAdmin();
+      if (err) return err;
+
+      const instId = path.split('/').pop();
+      const { error } = await supabase.from('inventory').delete().eq('id', instId);
+      if (error) return errorResponse(error.message);
+
+      await logAudit('DELETE', 'inventory', instId, { id: instId });
+      return jsonResponse({ ok: true });
+    }
+
+    // --- 4. BOOKINGS / PURCHASE ORDERS ---
     if (path === '/api/book' && method === 'POST') {
-      const { instrumentId, days = 7, remarks, startDate: explicitStart, endDate: explicitEnd } = body;
-      const instIndex = db.instruments.findIndex(i => String(i.id) === String(instrumentId));
-      if (instIndex === -1) return errorResponse('Instrument not found.', 404);
+      const { userId, instrumentId, startDate, dueDate, remarks } = body;
+      const isUserAdmin = (user.role || '').toLowerCase() === 'admin';
+      const status = isUserAdmin ? 'approved' : 'pending';
+      const id = 'BK' + Math.random().toString(36).substring(2, 7).toUpperCase();
+      const fileName = `booking-${id}-${Date.now()}.xlsx`;
+      const sheetUrl = `/download/` + fileName;
 
-      const activeAndFuture = db.bookings.filter(b => 
-        String(b.instrumentId) === String(instrumentId) && 
-        !b.returnedDate && 
-        b.status !== 'denied'
-      );
+      const payload = {
+        id,
+        user_id: userId,
+        instrument_id: instrumentId,
+        start_date: startDate,
+        due_date: dueDate,
+        remarks: remarks || '',
+        status,
+        sheet_url: sheetUrl
+      };
 
-      let start, due;
-      const isPreBooking = activeAndFuture.length > 0;
+      const { data, error } = await supabase.from('purchase_orders').insert(payload).select().single();
+      if (error) return errorResponse(error.message);
 
-      if (explicitStart && explicitEnd) {
-        start = new Date(explicitStart);
-        due = new Date(explicitEnd);
-      } else if (isPreBooking) {
-        let maxDue = new Date();
-        activeAndFuture.forEach(b => {
-          const d = new Date(b.dueDate);
-          if (d > maxDue) maxDue = d;
-        });
-        start = new Date(maxDue.getTime() + 1000);
-        due = new Date(start.getTime() + days * 24 * 3600 * 1000);
-      } else {
-        start = new Date();
-        due = new Date(start.getTime() + days * 24 * 3600 * 1000);
+      if (isUserAdmin) {
+        await supabase.from('inventory').update({ status: 'booked', location: 'with_user' }).eq('id', instrumentId);
       }
 
-      if (due <= start) return errorResponse('End date must be after start date.');
-
-      const now = new Date();
-      const currentBooking = activeAndFuture.find(b => {
-        if (b.status !== 'approved') return false;
-        const bStart = new Date(b.startDate);
-        const bDue = new Date(b.dueDate);
-        return bStart <= now && bDue >= now;
-      });
-
-      const futureQueue = activeAndFuture.filter(b => {
-        const bStart = new Date(b.startDate);
-        return bStart > now || b.status === 'pending';
-      });
-
-      if (futureQueue.length > 0 && (!currentBooking || explicitStart || explicitEnd)) {
-        return errorResponse('This instrument already has a pending/future pre-booking queue. Only one queued request is allowed.');
-      }
-
-      const overlap = activeAndFuture.find(b => {
-        const bStart = new Date(b.startDate);
-        const bDue = new Date(b.dueDate);
-        return start < bDue && due > bStart;
-      });
-      if (overlap) {
-        return errorResponse(`Requested booking dates overlap with an existing booking (${new Date(overlap.startDate).toLocaleDateString()} to ${new Date(overlap.dueDate).toLocaleDateString()}).`);
-      }
-
-      if ((user.role || '').toLowerCase() === 'admin') {
-        // Direct admin booking - auto approve and generate download sheet url
-        const fileName = `booking-${Date.now()}.xlsx`;
-        const sheetUrl = `/download/${fileName}`;
-        
-        const bookingRow = {
-          id: generateId('BKG'),
-          userId: user.id,
-          instrumentId,
-          startDate: start.toISOString(),
-          dueDate: due.toISOString(),
-          remarks,
-          status: 'approved',
-          sheetUrl,
-          returnedDate: null
-        };
-        db.bookings.push(bookingRow);
-        
-        const inst = db.instruments[instIndex];
-        if (inst.status !== 'booked') {
-          inst.status = 'booked';
-          inst.location = 'with_user';
-        }
-        writeDb(db);
-        
-        // Push insights notification
-        setTimeout(() => {
-          socket.emit('insight', { toUserId: user.id, items: [{ instrumentId, instrumentName: inst.name, insight: inst.lastInsight || '' }] });
-        }, 100);
-
-        return jsonResponse({ ok: true, sheet: sheetUrl });
-      } else {
-        // Engineer booking -> creates request
-        const bookingRow = {
-          id: generateId('BKG'),
-          userId: user.id,
-          instrumentId,
-          startDate: start.toISOString(),
-          dueDate: due.toISOString(),
-          remarks,
-          status: 'pending',
-          returnedDate: null
-        };
-        db.bookings.push(bookingRow);
-        
-        const inst = db.instruments[instIndex];
-        if (inst.status === 'available') {
-          inst.status = 'requested';
-        }
-        writeDb(db);
-        return jsonResponse({ ok: true, pending: true, message: isPreBooking ? 'Pre-booking request sent to admin for approval.' : 'Booking request sent to admin for approval.' });
-      }
+      await logAudit('CREATE', 'purchase_orders', id, payload);
+      return jsonResponse(snakeToCamel(data));
     }
 
     if (path === '/api/book/bulk' && method === 'POST') {
-      const { instrumentIds = [], days = 7, remarks, startDate: explicitStart, endDate: explicitEnd } = body;
-      let start, due;
-      if (explicitStart && explicitEnd) {
-        start = new Date(explicitStart);
-        due = new Date(explicitEnd);
-      } else {
-        start = new Date();
-        due = new Date(start.getTime() + days * 24 * 3600 * 1000);
+      const { userId, instrumentIds = [], startDate, dueDate, remarks } = body;
+      const isUserAdmin = (user.role || '').toLowerCase() === 'admin';
+      const status = isUserAdmin ? 'approved' : 'pending';
+      const bulkGroupId = 'GRP' + Math.random().toString(36).substring(2, 7).toUpperCase();
+      const fileName = `booking-bulk-${bulkGroupId}-${Date.now()}.xlsx`;
+      const sheetUrl = `/download/` + fileName;
+
+      const bookingRows = instrumentIds.map(instId => ({
+        id: 'BK' + Math.random().toString(36).substring(2, 7).toUpperCase(),
+        user_id: userId,
+        instrument_id: instId,
+        start_date: startDate,
+        due_date: dueDate,
+        remarks: remarks || '',
+        status,
+        sheet_url: sheetUrl,
+        bulk_group_id: bulkGroupId
+      }));
+
+      const { data, error } = await supabase.from('purchase_orders').insert(bookingRows).select();
+      if (error) return errorResponse(error.message);
+
+      if (isUserAdmin) {
+        await supabase.from('inventory').update({ status: 'booked', location: 'with_user' }).in('id', instrumentIds);
       }
 
-      if (due <= start) return errorResponse('End date must be after start date.');
-
-      // Validations
-      for (const instId of instrumentIds) {
-        const inst = db.instruments.find(i => String(i.id) === String(instId));
-        if (!inst) continue;
-
-        const activeAndFuture = db.bookings.filter(b => 
-          String(b.instrumentId) === String(instId) && 
-          !b.returnedDate && 
-          b.status !== 'denied'
-        );
-
-        const now = new Date();
-        const futureQueue = activeAndFuture.filter(b => b.status === 'pending' || new Date(b.startDate) > now);
-        if (futureQueue.length > 0) {
-          return errorResponse(`Instrument "${inst.name}" already has a pending/future pre-booking queue.`);
-        }
-
-        const overlap = activeAndFuture.find(b => {
-          const bStart = new Date(b.startDate);
-          const bDue = new Date(b.dueDate);
-          return start < bDue && due > bStart;
-        });
-        if (overlap) {
-          return errorResponse(`Requested dates overlap with an existing booking for "${inst.name}" (${new Date(overlap.startDate).toLocaleDateString()} to ${new Date(overlap.dueDate).toLocaleDateString()}).`);
-        }
-      }
-
-      if ((user.role || '').toLowerCase() === 'admin') {
-        const groupId = generateId('GRP');
-        const fileName = `booking-bulk-${groupId}-&{Date.now()}.xlsx`;
-        const sheetUrl = `/download/${fileName}`;
-        const notificationItems = [];
-
-        for (const instId of instrumentIds) {
-          const inst = db.instruments.find(i => String(i.id) === String(instId));
-          if (!inst) continue;
-
-          db.bookings.push({
-            id: generateId('BKG'),
-            userId: user.id,
-            instrumentId: instId,
-            startDate: start.toISOString(),
-            dueDate: due.toISOString(),
-            remarks,
-            status: 'approved',
-            bulkGroupId: groupId,
-            sheetUrl,
-            returnedDate: null
-          });
-
-          if (inst.status !== 'booked') {
-            inst.status = 'booked';
-            inst.location = 'with_user';
-          }
-          notificationItems.push({ instrumentId: instId, instrumentName: inst.name, insight: inst.lastInsight || '' });
-        }
-        writeDb(db);
-
-        setTimeout(() => {
-          if (notificationItems.length) {
-            socket.emit('insight', { toUserId: user.id, items: notificationItems });
-          }
-        }, 100);
-
-        return jsonResponse({ ok: true, sheet: sheetUrl });
-      } else {
-        const groupId = generateId('GRP');
-        let count = 0;
-        for (const instId of instrumentIds) {
-          const inst = db.instruments.find(i => String(i.id) === String(instId));
-          if (!inst) continue;
-
-          db.bookings.push({
-            id: generateId('BKG'),
-            userId: user.id,
-            instrumentId: instId,
-            startDate: start.toISOString(),
-            dueDate: due.toISOString(),
-            remarks,
-            status: 'pending',
-            bulkGroupId: groupId,
-            returnedDate: null
-          });
-
-          if (inst.status === 'available') {
-            inst.status = 'requested';
-          }
-          count++;
-        }
-        writeDb(db);
-        return jsonResponse({ ok: true, pending: true, message: `Bulk booking request for ${count} instrument(s) submitted for admin approval.` });
-      }
+      await logAudit('CREATE_BULK', 'purchase_orders', bulkGroupId, bookingRows);
+      return jsonResponse(snakeToCamel(data));
     }
 
-    // --- BOOKING REQUESTS APPROVE/DENY (ADMIN ONLY) ---
     if (path === '/api/booking-requests' && method === 'GET') {
-      const pending = db.bookings.filter(b => b.status === 'pending');
-      const groups = {};
-      pending.forEach(b => {
-        const key = b.bulkGroupId || b.id;
-        if (!groups[key]) groups[key] = [];
-        groups[key].push(b);
-      });
+      const { data, error } = await supabase.from('purchase_orders').select('*').eq('status', 'pending');
+      if (error) return errorResponse(error.message);
 
-      const result = Object.entries(groups).map(([requestId, bookings]) => {
-        const first = bookings[0];
-        const requester = db.users.find(u => String(u.id) === String(first.userId)) || {};
-        const isBulk = !!first.bulkGroupId;
-        const instrumentList = bookings.map(b => {
-          const inst = db.instruments.find(i => String(i.id) === String(b.instrumentId)) || {};
-          return {
-            bookingId: b.id,
-            id: inst.id || b.instrumentId,
-            name: inst.name || 'Unknown',
-            model: inst.model || 'N/A',
-            serial: inst.serial || 'N/A'
-          };
-        });
+      const { data: users } = await supabase.from('users').select('*');
+      const { data: instruments } = await supabase.from('inventory').select('*');
+
+      const enriched = (data || []).map(b => {
+        const u = (users || []).find(x => x.id === b.user_id) || {};
+        const inst = (instruments || []).find(x => x.id === b.instrument_id) || {};
         return {
-          requestId,
-          type: isBulk ? 'bulk' : 'single',
-          userId: first.userId,
-          userName: requester.name || 'Unknown User',
-          userEmail: requester.email || 'N/A',
-          instruments: instrumentList,
-          startDate: first.startDate,
-          dueDate: first.dueDate,
-          remarks: first.remarks,
-          status: 'pending'
+          ...snakeToCamel(b),
+          userName: u.name || 'Unknown',
+          userEmail: u.email || 'Unknown',
+          instrumentName: inst.name || 'Unknown',
+          instrumentModel: inst.model || 'N/A',
+          instrumentSerial: inst.serial || 'N/A'
         };
       });
 
-      return jsonResponse(result);
+      return jsonResponse(enriched);
     }
 
     if (path.includes('/api/booking-requests/') && path.endsWith('/approve') && method === 'POST') {
       const err = requireAdmin();
       if (err) return err;
 
-      const requestId = path.split('/')[3]; // /api/booking-requests/:id/approve
-      const bulkBookings = db.bookings.filter(b => b.bulkGroupId === requestId && b.status === 'pending');
+      const bookingId = path.split('/')[3];
+      const { data: booking, error: fetchErr } = await supabase.from('purchase_orders').select('*').eq('id', bookingId).single();
+      if (fetchErr || !booking) return errorResponse('Booking request not found.', 404);
 
-      if (bulkBookings.length > 0) {
-        // Validate overlaps
-        for (const b of bulkBookings) {
-          const activeApproved = db.bookings.filter(x => 
-            String(x.instrumentId) === String(b.instrumentId) && 
-            !x.returnedDate && 
-            x.status === 'approved' && 
-            x.id !== b.id
-          );
+      const { error: approveErr } = await supabase.from('purchase_orders').update({ status: 'approved' }).eq('id', bookingId);
+      if (approveErr) return errorResponse(approveErr.message);
 
-          const bStart = new Date(b.startDate);
-          const bDue = new Date(b.dueDate);
-          const overlap = activeApproved.find(x => {
-            const xStart = new Date(x.startDate);
-            const xDue = new Date(x.dueDate);
-            return bStart < xDue && bDue > xStart;
-          });
+      await supabase.from('inventory').update({ status: 'booked', location: 'with_user' }).eq('id', booking.instrument_id);
 
-          if (overlap) {
-            const inst = db.instruments.find(i => String(i.id) === String(b.instrumentId)) || {};
-            return errorResponse(`Approval failed. Instrument "${inst.name}" has an overlapping approved booking.`);
-          }
-        }
-
-        const fileName = `booking-bulk-${requestId}-${Date.now()}.xlsx`;
-        const sheetUrl = `/download/${fileName}`;
-        const notificationItems = [];
-
-        bulkBookings.forEach(b => {
-          b.status = 'approved';
-          b.sheetUrl = sheetUrl;
-          const inst = db.instruments.find(i => String(i.id) === String(b.instrumentId));
-          if (inst) {
-            inst.status = 'booked';
-            inst.location = 'with_user';
-            notificationItems.push({ instrumentId: b.instrumentId, instrumentName: inst.name, insight: inst.lastInsight || '' });
-          }
-        });
-        writeDb(db);
-
-        setTimeout(() => {
-          socket.emit('insight', { toUserId: bulkBookings[0].userId, items: notificationItems });
-        }, 100);
-
-        return jsonResponse({ ok: true, sheet: sheetUrl });
-      } else {
-        // Single approval
-        const booking = db.bookings.find(b => String(b.id) === String(requestId));
-        if (!booking) return errorResponse('Booking request not found.', 404);
-        if (booking.status !== 'pending') return errorResponse('Request is not pending.');
-
-        const activeApproved = db.bookings.filter(x => 
-          String(x.instrumentId) === String(booking.instrumentId) && 
-          !x.returnedDate && 
-          x.status === 'approved' && 
-          x.id !== booking.id
-        );
-
-        const bStart = new Date(booking.startDate);
-        const bDue = new Date(booking.dueDate);
-        const overlap = activeApproved.find(x => {
-          const xStart = new Date(x.startDate);
-          const xDue = new Date(x.dueDate);
-          return bStart < xDue && bDue > xStart;
-        });
-
-        if (overlap) {
-          return errorResponse('Approval failed. Instrument has an overlapping approved booking.');
-        }
-
-        const fileName = `booking-${booking.id}-${Date.now()}.xlsx`;
-        const sheetUrl = `/download/${fileName}`;
-        booking.status = 'approved';
-        booking.sheetUrl = sheetUrl;
-
-        const inst = db.instruments.find(i => String(i.id) === String(booking.instrumentId));
-        if (inst) {
-          inst.status = 'booked';
-          inst.location = 'with_user';
-          setTimeout(() => {
-            socket.emit('insight', { toUserId: booking.userId, items: [{ instrumentId: booking.instrumentId, instrumentName: inst.name, insight: inst.lastInsight || '' }] });
-          }, 100);
-        }
-        writeDb(db);
-        return jsonResponse({ ok: true, sheet: sheetUrl });
-      }
+      await logAudit('APPROVE', 'purchase_orders', bookingId, booking);
+      return jsonResponse({ ok: true });
     }
 
     if (path.includes('/api/booking-requests/') && path.endsWith('/deny') && method === 'POST') {
       const err = requireAdmin();
       if (err) return err;
 
-      const requestId = path.split('/')[3];
-      const bulkBookings = db.bookings.filter(b => b.bulkGroupId === requestId && b.status === 'pending');
+      const bookingId = path.split('/')[3];
+      const { data, error } = await supabase.from('purchase_orders').update({ status: 'denied' }).eq('id', bookingId).select().single();
+      if (error) return errorResponse(error.message);
 
-      if (bulkBookings.length > 0) {
-        bulkBookings.forEach(b => {
-          b.status = 'denied';
-          const inst = db.instruments.find(i => String(i.id) === String(b.instrumentId));
-          if (inst) {
-            inst.status = 'available';
-            inst.location = 'warehouse';
-          }
-        });
-        writeDb(db);
-        return jsonResponse({ ok: true });
-      } else {
-        const booking = db.bookings.find(b => String(b.id) === String(requestId));
-        if (!booking) return errorResponse('Booking request not found.', 404);
-        booking.status = 'denied';
-        const inst = db.instruments.find(i => String(i.id) === String(booking.instrumentId));
-        if (inst) {
-          inst.status = 'available';
-          inst.location = 'warehouse';
-        }
-        writeDb(db);
-        return jsonResponse({ ok: true });
-      }
+      await logAudit('DENY', 'purchase_orders', bookingId, data);
+      return jsonResponse({ ok: true });
     }
 
-    // --- RETURN OPERATIONS ---
     if (path === '/api/return' && method === 'POST') {
       const { instrumentId, remarks } = body;
-      const booking = findCurrentApprovedBooking(db.bookings, instrumentId);
-      if (!booking) return errorResponse('Active booking not found.', 404);
 
-      if (user.role !== 'admin' && String(booking.userId) !== String(user.id)) {
-        return errorResponse('You are not authorized to return this instrument.', 403);
+      const { data: activeBookings } = await supabase
+        .from('purchase_orders')
+        .select('*')
+        .eq('instrument_id', instrumentId)
+        .is('returned_date', null)
+        .eq('status', 'approved');
+
+      if (!activeBookings || activeBookings.length === 0) {
+        return errorResponse('Active booking not found for return.', 404);
       }
 
+      const booking = activeBookings[0];
       const returnedDate = new Date().toISOString();
-      booking.returnedDate = returnedDate;
-      booking.dueDate = returnedDate;
-      if (remarks) booking.returnRemarks = remarks;
-      booking.returnedById = user.id;
-      booking.returnedByName = user.name;
 
-      await handleInstrumentReturnTransition(db, instrumentId, booking.id);
-      writeDb(db);
+      const updateData = {
+        returned_date: returnedDate,
+        due_date: returnedDate,
+        returned_by_name: user.name,
+        return_remarks: remarks || ''
+      };
+
+      await supabase.from('purchase_orders').update(updateData).eq('id', booking.id);
+
+      const instUpdate = { status: 'available', location: 'warehouse' };
+      if (remarks) instUpdate.last_insight = remarks;
+      await supabase.from('inventory').update(instUpdate).eq('id', instrumentId);
+
+      await logAudit('RETURN', 'purchase_orders', booking.id, updateData);
       return jsonResponse({ ok: true });
     }
 
@@ -1172,97 +794,124 @@ window.fetch = async function (url, options = {}) {
       const { instrumentIds = [], remarks } = body;
       const returnedDate = new Date().toISOString();
 
-      instrumentIds.forEach(instId => {
-        const booking = findCurrentApprovedBooking(db.bookings, instId);
-        if (!booking) return;
+      for (const instId of instrumentIds) {
+        const { data: activeBookings } = await supabase
+          .from('purchase_orders')
+          .select('*')
+          .eq('instrument_id', instId)
+          .is('returned_date', null)
+          .eq('status', 'approved');
 
-        if (user.role !== 'admin' && String(booking.userId) !== String(user.id)) return;
+        if (!activeBookings || activeBookings.length === 0) continue;
 
-        booking.returnedDate = returnedDate;
-        booking.dueDate = returnedDate;
-        if (remarks) booking.returnRemarks = remarks;
-        booking.returnedById = user.id;
-        booking.returnedByName = user.name;
+        const booking = activeBookings[0];
+        const updateData = {
+          returned_date: returnedDate,
+          due_date: returnedDate,
+          returned_by_name: user.name,
+          return_remarks: remarks || ''
+        };
 
-        handleInstrumentReturnTransition(db, instId, booking.id);
+        await supabase.from('purchase_orders').update(updateData).eq('id', booking.id);
 
-        // Save last insight/remarks to instrument
-        if (remarks) {
-          const inst = db.instruments.find(i => String(i.id) === String(instId));
-          if (inst) inst.lastInsight = remarks;
-        }
-      });
+        const instUpdate = { status: 'available', location: 'warehouse' };
+        if (remarks) instUpdate.last_insight = remarks;
+        await supabase.from('inventory').update(instUpdate).eq('id', instId);
 
-      writeDb(db);
+        await logAudit('RETURN', 'purchase_orders', booking.id, updateData);
+      }
+
       return jsonResponse({ ok: true });
     }
 
-    // --- INSIGHTS & CALIBRATION DUE ---
+    // --- 5. CALIBRATION & INSIGHTS ---
     if (path === '/api/calibration/due' && method === 'GET') {
       const days = 15;
       const now = new Date();
       const cutoff = new Date(now.getTime() + days * 24 * 3600 * 1000);
-      const filtered = db.instruments.filter(i => i.nextCalibrationDate && new Date(i.nextCalibrationDate) >= now && new Date(i.nextCalibrationDate) <= cutoff);
-      return jsonResponse(filtered);
-    }
 
-    if (path === '/api/instrument/insight' && method === 'POST') {
-      const { instrumentId, insight } = body;
-      const inst = db.instruments.find(i => String(i.id) === String(instrumentId));
-      if (!inst) return errorResponse('Instrument not found.', 404);
-      inst.lastInsight = insight;
-      writeDb(db);
-      return jsonResponse(inst);
-    }
+      const { data, error } = await supabase.from('inventory').select('*').not('next_calibration_date', 'is', null);
+      if (error) return errorResponse(error.message);
 
-    if (path === '/api/bookings' && method === 'GET') {
-      const result = db.bookings.map(b => {
-        const inst = db.instruments.find(i => String(i.id) === String(b.instrumentId)) || {};
-        const requester = db.users.find(u => String(u.id) === String(b.userId)) || {};
-        return {
-          ...b,
-          userName: requester.name || 'Unknown User',
-          instrumentName: inst.name || 'Unknown',
-          instrumentModel: inst.model || 'N/A',
-          instrumentSerial: inst.serial || 'N/A',
-          instrumentImage: Array.isArray(inst.productImages) ? inst.productImages[0] : null
-        };
+      const filtered = (data || []).filter(i => {
+        const nd = new Date(i.next_calibration_date);
+        return nd >= now && nd <= cutoff;
       });
-      // Sort: newest first
-      result.sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
-      return jsonResponse(result);
+
+      return jsonResponse(snakeToCamel(filtered));
     }
 
     if (path === '/api/calibrations' && method === 'GET') {
-      const rows = db.instruments.map(i => {
-        const next = i.nextCalibrationDate || null;
+      const { data, error } = await supabase.from('inventory').select('*');
+      if (error) return errorResponse(error.message);
+
+      const rows = (data || []).map(i => {
+        const next = i.next_calibration_date || null;
         const dueIn = next ? (new Date(next) - new Date()) : null;
-        return { ...i, dueInMilliseconds: dueIn };
+        return {
+          ...snakeToCamel(i),
+          dueInMilliseconds: dueIn
+        };
       });
+
       return jsonResponse(rows);
     }
 
     if (path === '/api/calibrate' && method === 'POST') {
       const { instrumentId, certificateUrl, cycleDays } = body;
-      const instIndex = db.instruments.findIndex(i => String(i.id) === String(instrumentId));
-      if (instIndex === -1) return errorResponse('Instrument not found.', 404);
-
       const now = new Date();
       const days = Number(cycleDays) || 365;
       const next = new Date(now.getTime() + days * 24 * 3600 * 1000);
-      const update = {
-        lastCalibrationDate: now.toISOString(),
-        nextCalibrationDate: next.toISOString(),
-        calibrationCycleDays: days
+
+      const updateData = {
+        last_calibration_date: now.toISOString(),
+        next_calibration_date: next.toISOString(),
+        calibration_cycle_days: days
       };
-      if (certificateUrl) update.calibrationCertificateUrl = certificateUrl;
-      
-      db.instruments[instIndex] = { ...db.instruments[instIndex], ...update };
-      writeDb(db);
+      if (certificateUrl) updateData.calibration_certificate_url = certificateUrl;
+
+      const { data, error } = await supabase.from('inventory').update(updateData).eq('id', instrumentId).select().single();
+      if (error) return errorResponse(error.message);
+
+      await logAudit('CALIBRATE', 'inventory', instrumentId, updateData);
       return jsonResponse({ ok: true });
     }
 
-    // --- BOOKING DELETION / CLEANING (ADMIN ONLY) ---
+    if (path === '/api/instrument/insight' && method === 'POST') {
+      const { instrumentId, insight } = body;
+
+      const { data, error } = await supabase.from('inventory').update({ last_insight: insight }).eq('id', instrumentId).select().single();
+      if (error) return errorResponse(error.message);
+
+      await logAudit('INSIGHT', 'inventory', instrumentId, { last_insight: insight });
+      return jsonResponse(snakeToCamel(data));
+    }
+
+    // --- 6. TRANSACTIONS ---
+    if (path === '/api/bookings' && method === 'GET') {
+      const { data: bookings, error } = await supabase.from('purchase_orders').select('*');
+      if (error) return errorResponse(error.message);
+
+      const { data: instruments } = await supabase.from('inventory').select('*');
+      const { data: users } = await supabase.from('users').select('*');
+
+      const enriched = (bookings || []).map(b => {
+        const inst = (instruments || []).find(i => String(i.id) === String(b.instrument_id)) || {};
+        const requester = (users || []).find(u => String(u.id) === String(b.user_id)) || {};
+        return {
+          ...snakeToCamel(b),
+          userName: requester.name || 'Unknown User',
+          instrumentName: inst.name || 'Unknown',
+          instrumentModel: inst.model || 'N/A',
+          instrumentSerial: inst.serial || 'N/A',
+          instrumentImage: Array.isArray(inst.product_images) ? inst.product_images[0] : null
+        };
+      });
+
+      enriched.sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
+      return jsonResponse(enriched);
+    }
+
     if (path.startsWith('/api/bookings/') && method === 'DELETE') {
       const err = requireAdmin();
       if (err) return err;
@@ -1270,12 +919,15 @@ window.fetch = async function (url, options = {}) {
       const subpath = path.replace('/api/bookings/', '');
       if (subpath.startsWith('group/')) {
         const groupId = subpath.replace('group/', '');
-        db.bookings = db.bookings.filter(b => String(b.bulkGroupId) !== String(groupId));
+        const { error } = await supabase.from('purchase_orders').delete().eq('bulk_group_id', groupId);
+        if (error) return errorResponse(error.message);
+        await logAudit('DELETE_BULK', 'purchase_orders', groupId, { bulk_group_id: groupId });
       } else {
         const bookingId = subpath;
-        db.bookings = db.bookings.filter(b => String(b.id) !== String(bookingId));
+        const { error } = await supabase.from('purchase_orders').delete().eq('id', bookingId);
+        if (error) return errorResponse(error.message);
+        await logAudit('DELETE', 'purchase_orders', bookingId, { id: bookingId });
       }
-      writeDb(db);
       return jsonResponse({ ok: true });
     }
 
@@ -1283,8 +935,10 @@ window.fetch = async function (url, options = {}) {
       const err = requireAdmin();
       if (err) return err;
 
-      db.bookings = [];
-      writeDb(db);
+      const { error } = await supabase.from('purchase_orders').delete().neq('id', 'dummy');
+      if (error) return errorResponse(error.message);
+
+      await logAudit('CLEAR_ALL', 'purchase_orders', null, {});
       return jsonResponse({ ok: true });
     }
 
@@ -1293,58 +947,64 @@ window.fetch = async function (url, options = {}) {
       if (err) return err;
 
       const { start, end } = query;
-      const bookingsList = db.bookings.filter(b => {
-        const date = new Date(b.startDate);
-        return date >= new Date(start) && date <= new Date(end);
-      });
-      return jsonResponse(bookingsList);
+      const { data, error } = await supabase
+        .from('purchase_orders')
+        .select('*')
+        .gte('start_date', start)
+        .lte('start_date', end + "T23:59:59.999Z");
+
+      if (error) return errorResponse(error.message);
+      return jsonResponse(snakeToCamel(data));
     }
 
-    // --- VENDORS, PRODUCTS AND UTILITIES ---
+    // --- 7. VENDORS, PRODUCTS & UTILITIES ---
     if (path === '/api/vendors') {
       if (method === 'GET') {
-        const q = (query.q || '').toLowerCase().trim();
-        const utilityFilter = (query.utility || '').toLowerCase().trim();
+        const q = (query.q || '').trim();
+        const utilityFilter = (query.utility || '').trim();
         const vendorFilter = (query.vendor || '').trim();
         const productFilter = (query.product || '').trim();
         const page = parseInt(query.page) || 1;
         const limit = parseInt(query.limit) || 10;
 
-        const allVendors = db.vendors || [];
-        const allProducts = db.products || [];
-
-        const productsByVendor = {};
-        allProducts.forEach(prod => {
-          if (!productsByVendor[prod.vendorId]) productsByVendor[prod.vendorId] = [];
-          productsByVendor[prod.vendorId].push(prod);
+        // Perform index-fast filtering directly in PostgreSQL via RPC
+        const { data, error } = await supabase.rpc('search_vendors', {
+          search_query: q,
+          utility_filter: utilityFilter,
+          vendor_filter: vendorFilter,
+          product_filter: productFilter,
+          page_num: page,
+          page_size: limit,
+          sort_by: 'name',
+          sort_order: 'asc'
         });
 
-        const filtered = allVendors.filter(v => {
-          const vProds = productsByVendor[v.id] || [];
-          if (vendorFilter && String(v.id) !== String(vendorFilter)) return false;
-          if (productFilter) {
-            const hasProd = vProds.some(p => String(p.id) === String(productFilter) || p.name.toLowerCase().includes(productFilter.toLowerCase()));
-            if (!hasProd) return false;
-          }
-          if (utilityFilter) {
-            const hasUtil = vProds.some(p => (p.utilityId || '').toLowerCase() === utilityFilter);
-            if (!hasUtil) return false;
-          }
-          if (q) {
-            const matchVendor = (v.name || '').toLowerCase().includes(q) || (v.companyName || '').toLowerCase().includes(q) || (v.contactPerson || '').toLowerCase().includes(q);
-            const matchProduct = vProds.some(p => (p.name || '').toLowerCase().includes(q) || (p.category || '').toLowerCase().includes(q) || (p.utilityName || '').toLowerCase().includes(q));
-            if (!matchVendor && !matchProduct) return false;
-          }
-          return true;
-        });
+        if (error) return errorResponse(error.message);
 
-        const total = filtered.length;
-        const startIdx = (page - 1) * limit;
-        const sliced = filtered.slice(startIdx, startIdx + limit);
-        const mapped = sliced.map(v => ({
-          ...v,
-          products: productsByVendor[v.id] || [],
-          productCount: (productsByVendor[v.id] || []).length
+        const total = data && data.length > 0 ? data[0].total_count : 0;
+        const mapped = (data || []).map(v => ({
+          id: v.id,
+          name: v.name,
+          companyName: v.company_name,
+          vendorType: v.vendor_type,
+          status: v.status,
+          contactPerson: v.contact_person,
+          mobileNumber: v.mobile_number,
+          alternativeMobileNumber: v.alternative_mobile_number,
+          email: v.email,
+          website: v.website,
+          streetAddress: v.street_address,
+          city: v.city,
+          state: v.state,
+          country: v.country,
+          pinCode: v.pin_code,
+          gstin: v.gstin,
+          pan: v.pan,
+          businessRegNo: v.business_reg_no,
+          remarks: v.remarks,
+          productCount: v.product_count,
+          createdAt: v.created_at,
+          products: [] // Lazily fetched in profiles
         }));
 
         return jsonResponse({
@@ -1361,11 +1021,13 @@ window.fetch = async function (url, options = {}) {
         if (err) return err;
 
         const id = 'VND' + Math.random().toString(36).substring(2, 7).toUpperCase();
-        const newVendor = { id, ...body };
-        db.vendors = db.vendors || [];
-        db.vendors.push(newVendor);
-        writeDb(db);
-        return jsonResponse(newVendor);
+        const payload = camelToSnake({ id, ...body });
+
+        const { data, error } = await supabase.from('vendors').insert(payload).select().single();
+        if (error) return errorResponse(error.message);
+
+        await logAudit('CREATE', 'vendors', id, payload);
+        return jsonResponse(snakeToCamel(data));
       }
     }
 
@@ -1375,16 +1037,16 @@ window.fetch = async function (url, options = {}) {
       const vendorId = parts[0];
 
       if (parts.length === 1) {
-        // Vendor profile operations
-        const vendorIndex = (db.vendors || []).findIndex(v => String(v.id) === String(vendorId));
-        if (vendorIndex === -1) return errorResponse('Vendor not found.', 404);
-
         if (method === 'GET') {
-          const prods = (db.products || []).filter(p => String(p.vendorId) === String(vendorId));
+          const { data: vendor, error: vErr } = await supabase.from('vendors').select('*').eq('id', vendorId).single();
+          if (vErr || !vendor) return errorResponse('Vendor profile not found.', 404);
+
+          const { data: products } = await supabase.from('products').select('*').eq('vendor_id', vendorId);
+
           return jsonResponse({
-            ...db.vendors[vendorIndex],
-            products: prods,
-            productCount: prods.length
+            ...snakeToCamel(vendor),
+            products: snakeToCamel(products || []),
+            productCount: (products || []).length
           });
         }
 
@@ -1392,87 +1054,121 @@ window.fetch = async function (url, options = {}) {
           const err = requireAdmin();
           if (err) return err;
 
-          db.vendors[vendorIndex] = { ...db.vendors[vendorIndex], ...body };
-          writeDb(db);
-          return jsonResponse(db.vendors[vendorIndex]);
+          const payload = camelToSnake(body);
+          const { data, error } = await supabase.from('vendors').update(payload).eq('id', vendorId).select().single();
+          if (error) return errorResponse(error.message);
+
+          await logAudit('UPDATE', 'vendors', vendorId, payload);
+          return jsonResponse(snakeToCamel(data));
         }
 
         if (method === 'DELETE') {
           const err = requireAdmin();
           if (err) return err;
 
-          db.vendors = (db.vendors || []).filter(v => String(v.id) !== String(vendorId));
-          db.products = (db.products || []).filter(p => String(p.vendorId) !== String(vendorId));
-          writeDb(db);
+          const { error } = await supabase.from('vendors').delete().eq('id', vendorId);
+          if (error) return errorResponse(error.message);
+
+          await logAudit('DELETE', 'vendors', vendorId, { id: vendorId });
           return jsonResponse({ ok: true });
         }
       } else if (parts[1] === 'products') {
-        // Vendor product operations
-        db.products = db.products || [];
         if (method === 'POST') {
           const err = requireAdmin();
           if (err) return err;
 
-          const pId = 'PRD' + Math.random().toString(36).substring(2, 7).toUpperCase();
-          const newProduct = { id: pId, vendorId, ...body };
-          db.products.push(newProduct);
-          writeDb(db);
-          return jsonResponse(newProduct);
+          const productId = 'PRD' + Math.random().toString(36).substring(2, 7).toUpperCase();
+          const payload = camelToSnake({ id: productId, vendorId, ...body });
+
+          const { data, error } = await supabase.from('products').insert(payload).select().single();
+          if (error) return errorResponse(error.message);
+
+          await logAudit('CREATE', 'products', productId, payload);
+          return jsonResponse(snakeToCamel(data));
         }
 
         const productId = parts[2];
-        const prodIndex = db.products.findIndex(p => String(p.id) === String(productId) && String(p.vendorId) === String(vendorId));
-        if (prodIndex === -1) return errorResponse('Product not found.', 404);
 
         if (method === 'PUT') {
           const err = requireAdmin();
           if (err) return err;
 
-          db.products[prodIndex] = { ...db.products[prodIndex], ...body };
-          writeDb(db);
-          return jsonResponse(db.products[prodIndex]);
+          const payload = camelToSnake(body);
+          const { data, error } = await supabase
+            .from('products')
+            .update(payload)
+            .eq('id', productId)
+            .eq('vendor_id', vendorId)
+            .select()
+            .single();
+
+          if (error) return errorResponse(error.message);
+
+          await logAudit('UPDATE', 'products', productId, payload);
+          return jsonResponse(snakeToCamel(data));
         }
 
         if (method === 'DELETE') {
           const err = requireAdmin();
           if (err) return err;
 
-          db.products = db.products.filter(p => !(String(p.id) === String(productId) && String(p.vendorId) === String(vendorId)));
-          writeDb(db);
+          const { error } = await supabase
+            .from('products')
+            .delete()
+            .eq('id', productId)
+            .eq('vendor_id', vendorId);
+
+          if (error) return errorResponse(error.message);
+
+          await logAudit('DELETE', 'products', productId, { id: productId });
           return jsonResponse({ ok: true });
         }
       }
     }
 
     if (path === '/api/utilities') {
-      db.utilities = db.utilities || [];
       if (method === 'GET') {
-        return jsonResponse(db.utilities);
+        const { data, error } = await supabase.from('utilities').select('*');
+        if (error) return errorResponse(error.message);
+        return jsonResponse(snakeToCamel(data));
       }
+
       if (method === 'POST') {
         const err = requireAdmin();
         if (err) return err;
 
         const { name } = body;
         const norm = name.toLowerCase().trim();
-        const existing = db.utilities.find(u => u.id === norm);
-        if (existing) return jsonResponse(existing);
 
-        const newUtil = { id: norm, name: name.trim() };
-        db.utilities.push(newUtil);
-        writeDb(db);
-        return jsonResponse(newUtil);
+        // Check utility uniqueness case-insensitively
+        const { data: existing } = await supabase.from('utilities').select('*').eq('id', norm).maybeSingle();
+        if (existing) return jsonResponse(snakeToCamel(existing));
+
+        const { data, error } = await supabase.from('utilities').insert({ id: norm, name: name.trim() }).select().single();
+        if (error) return errorResponse(error.message);
+
+        await logAudit('CREATE', 'utilities', norm, { id: norm, name });
+        return jsonResponse(snakeToCamel(data));
       }
     }
 
-    // --- SPREADSHEET DYNAMIC EXPORTS ---
+    // --- 8. EXCEL EXPORTS (Dynamic) ---
     if (path === '/api/vendors/export' && method === 'POST') {
       const { vendorIds } = body;
       if (!vendorIds || !Array.isArray(vendorIds) || vendorIds.length === 0) {
         return errorResponse('No vendors selected for export.');
       }
 
-      const blob = await generateVendorsExcel(vendorIds, db);
+      // Fetch vendors and products to compile workbook in-browser
+      const { data: vendors } = await supabase.from('vendors').select('*').in('id', vendorIds);
+      const { data: products } = await supabase.from('products').select('*');
+
+      const customDb = {
+        vendors: snakeToCamel(vendors || []),
+        products: snakeToCamel(products || [])
+      };
+
+      const blob = await generateVendorsExcel(vendorIds, customDb);
       return new Response(blob, {
         status: 200,
         headers: {
@@ -1484,15 +1180,19 @@ window.fetch = async function (url, options = {}) {
 
     if (path.startsWith('/download/')) {
       const filename = path.replace('/download/', '');
-      const bookingsList = db.bookings || [];
-      const instrumentsList = db.instruments || [];
-      const usersList = db.users || [];
 
-      // Find if this is a bulk booking or single booking based on matching sheetUrl
-      const targetBookings = bookingsList.filter(b => b.sheetUrl === '/download/' + filename || b.sheetUrl === path);
+      const { data: bookings } = await supabase.from('purchase_orders').select('*');
+      const { data: instruments } = await supabase.from('inventory').select('*');
+      const { data: users } = await supabase.from('users').select('*');
+
+      const mappedBookings = snakeToCamel(bookings || []);
+      const mappedInstruments = snakeToCamel(instruments || []);
+      const mappedUsers = snakeToCamel(users || []);
+
+      const targetBookings = mappedBookings.filter(b => b.sheetUrl === '/download/' + filename || b.sheetUrl === path);
       const isBulk = targetBookings.length > 0 && targetBookings.some(b => b.bulkGroupId);
 
-      const blob = await generateBookingExcel(targetBookings, instrumentsList, usersList, isBulk);
+      const blob = await generateBookingExcel(targetBookings, mappedInstruments, mappedUsers, isBulk);
       return new Response(blob, {
         status: 200,
         headers: {
@@ -1502,14 +1202,10 @@ window.fetch = async function (url, options = {}) {
       });
     }
 
-    // Path not found in simulated API
     return errorResponse('Not Found', 404);
 
   } catch (err) {
-    console.error('Simulated API Error:', err);
-    return errorResponse('Internal Server Error: ' + err.message, 500);
+    console.error('Supabase Interceptor error:', err);
+    return errorResponse('Internal database connection error: ' + err.message, 500);
   }
 };
-
-
-}
