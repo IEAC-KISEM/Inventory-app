@@ -463,6 +463,19 @@ window.fetch = async function (url, options = {}) {
     });
   }
 
+  // Helper to trigger real-time updates in the client
+  async function broadcastMockUpdate() {
+    if (window.__mock_socket) {
+      try {
+        const enriched = await getInstrumentsWithBookings();
+        window.__mock_socket.emit('instruments', enriched);
+        window.__mock_socket.emit('bookings');
+      } catch (err) {
+        console.error('Failed to broadcast mock update:', err);
+      }
+    }
+  }
+
   try {
     // --- 1. AUTHENTICATION & LOGIN ---
     if (path === '/api/login' && method === 'POST') {
@@ -560,6 +573,7 @@ window.fetch = async function (url, options = {}) {
 
         const profileWithLowerRole = { ...profile, role: (profile.role || 'engineer').toLowerCase() };
         await logAudit('CREATE', 'users', profile.id, profileWithLowerRole);
+        await broadcastMockUpdate();
         return jsonResponse(snakeToCamel(profileWithLowerRole));
       }
     }
@@ -582,6 +596,7 @@ window.fetch = async function (url, options = {}) {
 
       const updatedProfile = { ...data, role: (data.role || 'engineer').toLowerCase() };
       await logAudit('UPDATE', 'users', targetUserId, payload);
+      await broadcastMockUpdate();
       return jsonResponse(snakeToCamel(updatedProfile));
     }
 
@@ -594,6 +609,7 @@ window.fetch = async function (url, options = {}) {
       if (error) return errorResponse(error.message);
 
       await logAudit('DELETE', 'users', targetUserId, { id: targetUserId });
+      await broadcastMockUpdate();
       return jsonResponse({ ok: true });
     }
 
@@ -615,6 +631,7 @@ window.fetch = async function (url, options = {}) {
         if (error) return errorResponse(error.message);
 
         await logAudit('CREATE', 'inventory', id, payload);
+        await broadcastMockUpdate();
         return jsonResponse(snakeToCamel(data));
       }
     }
@@ -630,6 +647,7 @@ window.fetch = async function (url, options = {}) {
       if (error) return errorResponse(error.message);
 
       await logAudit('UPDATE', 'inventory', instId, payload);
+      await broadcastMockUpdate();
       return jsonResponse(snakeToCamel(data));
     }
 
@@ -642,24 +660,39 @@ window.fetch = async function (url, options = {}) {
       if (error) return errorResponse(error.message);
 
       await logAudit('DELETE', 'inventory', instId, { id: instId });
+      await broadcastMockUpdate();
       return jsonResponse({ ok: true });
     }
 
     // --- 4. BOOKINGS / PURCHASE ORDERS ---
     if (path === '/api/book' && method === 'POST') {
-      const { userId, instrumentId, startDate, dueDate, remarks } = body;
+      const { userId, instrumentId, startDate, endDate, dueDate, days, remarks } = body;
       const isUserAdmin = (user.role || '').toLowerCase() === 'admin';
       const status = isUserAdmin ? 'approved' : 'pending';
       const id = 'BK' + Math.random().toString(36).substring(2, 7).toUpperCase();
       const fileName = `booking-${id}-${Date.now()}.xlsx`;
       const sheetUrl = `/download/` + fileName;
 
+      let finalStart, finalDue;
+      const inputStart = startDate || body.startDate;
+      const inputDue = dueDate || endDate || body.endDate || body.dueDate;
+
+      if (inputStart && inputDue) {
+        finalStart = new Date(inputStart).toISOString();
+        finalDue = new Date(inputDue).toISOString();
+      } else {
+        const durationDays = Number(days || body.days) || 7;
+        const now = new Date();
+        finalStart = now.toISOString();
+        finalDue = new Date(now.getTime() + durationDays * 24 * 3600 * 1000).toISOString();
+      }
+
       const payload = {
         id,
         user_id: userId,
         instrument_id: instrumentId,
-        start_date: startDate,
-        due_date: dueDate,
+        start_date: finalStart,
+        due_date: finalDue,
         remarks: remarks || '',
         status,
         sheet_url: sheetUrl
@@ -673,23 +706,38 @@ window.fetch = async function (url, options = {}) {
       }
 
       await logAudit('CREATE', 'purchase_orders', id, payload);
+      await broadcastMockUpdate();
       return jsonResponse(snakeToCamel(data));
     }
 
     if (path === '/api/book/bulk' && method === 'POST') {
-      const { userId, instrumentIds = [], startDate, dueDate, remarks } = body;
+      const { userId, instrumentIds = [], startDate, endDate, dueDate, days, remarks } = body;
       const isUserAdmin = (user.role || '').toLowerCase() === 'admin';
       const status = isUserAdmin ? 'approved' : 'pending';
       const bulkGroupId = 'GRP' + Math.random().toString(36).substring(2, 7).toUpperCase();
       const fileName = `booking-bulk-${bulkGroupId}-${Date.now()}.xlsx`;
       const sheetUrl = `/download/` + fileName;
 
+      let finalStart, finalDue;
+      const inputStart = startDate || body.startDate;
+      const inputDue = dueDate || endDate || body.endDate || body.dueDate;
+
+      if (inputStart && inputDue) {
+        finalStart = new Date(inputStart).toISOString();
+        finalDue = new Date(inputDue).toISOString();
+      } else {
+        const durationDays = Number(days || body.days) || 7;
+        const now = new Date();
+        finalStart = now.toISOString();
+        finalDue = new Date(now.getTime() + durationDays * 24 * 3600 * 1000).toISOString();
+      }
+
       const bookingRows = instrumentIds.map(instId => ({
         id: 'BK' + Math.random().toString(36).substring(2, 7).toUpperCase(),
         user_id: userId,
         instrument_id: instId,
-        start_date: startDate,
-        due_date: dueDate,
+        start_date: finalStart,
+        due_date: finalDue,
         remarks: remarks || '',
         status,
         sheet_url: sheetUrl,
@@ -704,6 +752,7 @@ window.fetch = async function (url, options = {}) {
       }
 
       await logAudit('CREATE_BULK', 'purchase_orders', bulkGroupId, bookingRows);
+      await broadcastMockUpdate();
       return jsonResponse(snakeToCamel(data));
     }
 
@@ -744,6 +793,7 @@ window.fetch = async function (url, options = {}) {
       await supabase.from('inventory').update({ status: 'booked', location: 'with_user' }).eq('id', booking.instrument_id);
 
       await logAudit('APPROVE', 'purchase_orders', bookingId, booking);
+      await broadcastMockUpdate();
       return jsonResponse({ ok: true });
     }
 
@@ -756,6 +806,7 @@ window.fetch = async function (url, options = {}) {
       if (error) return errorResponse(error.message);
 
       await logAudit('DENY', 'purchase_orders', bookingId, data);
+      await broadcastMockUpdate();
       return jsonResponse({ ok: true });
     }
 
@@ -790,6 +841,7 @@ window.fetch = async function (url, options = {}) {
       await supabase.from('inventory').update(instUpdate).eq('id', instrumentId);
 
       await logAudit('RETURN', 'purchase_orders', booking.id, updateData);
+      await broadcastMockUpdate();
       return jsonResponse({ ok: true });
     }
 
@@ -824,6 +876,7 @@ window.fetch = async function (url, options = {}) {
         await logAudit('RETURN', 'purchase_orders', booking.id, updateData);
       }
 
+      await broadcastMockUpdate();
       return jsonResponse({ ok: true });
     }
 
@@ -877,6 +930,7 @@ window.fetch = async function (url, options = {}) {
       if (error) return errorResponse(error.message);
 
       await logAudit('CALIBRATE', 'inventory', instrumentId, updateData);
+      await broadcastMockUpdate();
       return jsonResponse({ ok: true });
     }
 
@@ -887,6 +941,7 @@ window.fetch = async function (url, options = {}) {
       if (error) return errorResponse(error.message);
 
       await logAudit('INSIGHT', 'inventory', instrumentId, { last_insight: insight });
+      await broadcastMockUpdate();
       return jsonResponse(snakeToCamel(data));
     }
 
@@ -931,6 +986,7 @@ window.fetch = async function (url, options = {}) {
         if (error) return errorResponse(error.message);
         await logAudit('DELETE', 'purchase_orders', bookingId, { id: bookingId });
       }
+      await broadcastMockUpdate();
       return jsonResponse({ ok: true });
     }
 
