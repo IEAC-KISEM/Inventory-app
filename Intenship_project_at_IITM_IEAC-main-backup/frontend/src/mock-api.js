@@ -181,6 +181,88 @@ async function generateBookingExcel(targetBookings, instrumentsList, usersList, 
   return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
+// Spreadsheet generation for extracted booking logs
+async function generateExtractBookingExcel(targetBookings, instrumentsList, usersList) {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Extracted Bookings');
+  sheet.views = [{ showGridLines: true }];
+
+  // Headers
+  sheet.addRow([
+    'SNo', 'Instrument Name', 'Model', 'Serial', 'Booked By', 'Start Date', 'Due Date',
+    'Returned Date', 'Returned By', 'Return Notes', 'Original Remarks', 'Status'
+  ]);
+
+  let idx = 1;
+  for (const b of targetBookings) {
+    const inst = instrumentsList.find(i => String(i.id) === String(b.instrumentId)) || {};
+    const user = usersList.find(u => String(u.id) === String(b.userId)) || {};
+
+    sheet.addRow([
+      idx++,
+      inst.name || 'Unknown',
+      inst.model || 'N/A',
+      inst.serial || 'N/A',
+      user.name || 'Unknown User',
+      safeDateString(b.startDate),
+      safeDateString(b.dueDate),
+      b.returnedDate ? safeDateString(b.returnedDate) : 'Active',
+      b.returnedByName || 'N/A',
+      b.returnRemarks || '',
+      b.remarks || '',
+      b.status || 'approved'
+    ]);
+  }
+
+  const titleFont = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFF' } };
+  const fillPrimary = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1E3A8A' } };
+  const borderThin = {
+    top: { style: 'thin', color: { argb: 'D1D5DB' } },
+    left: { style: 'thin', color: { argb: 'D1D5DB' } },
+    bottom: { style: 'thin', color: { argb: 'D1D5DB' } },
+    right: { style: 'thin', color: { argb: 'D1D5DB' } }
+  };
+
+  const headerRow = sheet.getRow(1);
+  headerRow.height = 24;
+  for (let i = 1; i <= 12; i++) {
+    const cell = headerRow.getCell(i);
+    cell.font = titleFont;
+    cell.fill = fillPrimary;
+    cell.alignment = { vertical: 'middle', horizontal: 'left' };
+    cell.border = borderThin;
+  }
+
+  // Format data rows
+  sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    if (rowNumber > 1) {
+      row.height = 20;
+      for (let i = 1; i <= 12; i++) {
+        const cell = row.getCell(i);
+        cell.font = { name: 'Arial', size: 10 };
+        cell.border = borderThin;
+        cell.alignment = { vertical: 'middle' };
+      }
+    }
+  });
+
+  sheet.columns.forEach(column => {
+    let maxLen = 12;
+    column.eachCell({ includeEmpty: true }, cell => {
+      if (cell.value) {
+        const valStr = cell.value.toString();
+        if (valStr.length > maxLen && !cell.address.includes('1')) {
+          maxLen = valStr.length;
+        }
+      }
+    });
+    column.width = Math.min(maxLen + 3, 35);
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+
 // Spreadsheet generation for vendors directory
 async function generateVendorsExcel(vendorIds, customDb) {
   const workbook = new ExcelJS.Workbook();
@@ -1064,14 +1146,14 @@ window.fetch = async function (url, options = {}) {
       if (err) return err;
 
       const { start, end } = query;
-      const { data, error } = await supabase
-        .from('purchase_orders')
-        .select('*')
-        .gte('start_date', start)
-        .lte('start_date', end + "T23:59:59.999Z");
+      if (!start || !end) {
+        return errorResponse('Start date and End date are required.', 400);
+      }
 
-      if (error) return errorResponse(error.message);
-      return jsonResponse(snakeToCamel(data));
+      const fileName = `booking-extract-${start}-${end}.xlsx`;
+      const sheetUrl = `/download/` + fileName;
+
+      return jsonResponse({ ok: true, sheet: sheetUrl });
     }
 
     // --- 7. VENDORS, PRODUCTS & UTILITIES ---
@@ -1363,10 +1445,32 @@ window.fetch = async function (url, options = {}) {
       const mappedInstruments = snakeToCamel(instruments || []);
       const mappedUsers = snakeToCamel(users || []);
 
-      const targetBookings = mappedBookings.filter(b => b.sheetUrl === '/download/' + filename || b.sheetUrl === path);
-      const isBulk = targetBookings.length > 0 && targetBookings.some(b => b.bulkGroupId);
+      let targetBookings = [];
+      let isBulk = false;
+      let isExtract = false;
 
-      const blob = await generateBookingExcel(targetBookings, mappedInstruments, mappedUsers, isBulk);
+      if (filename.startsWith('booking-extract-')) {
+        isExtract = true;
+        const match = filename.match(/booking-extract-(\d{4}-\d{2}-\d{2})-(\d{4}-\d{2}-\d{2})\.xlsx/);
+        if (match) {
+          const startDateLimit = new Date(match[1]);
+          const endDateLimit = new Date(match[2] + "T23:59:59.999Z");
+          targetBookings = mappedBookings.filter(b => {
+            const bStart = new Date(b.startDate);
+            return bStart >= startDateLimit && bStart <= endDateLimit;
+          });
+        } else {
+          targetBookings = mappedBookings;
+        }
+      } else {
+        targetBookings = mappedBookings.filter(b => b.sheetUrl === '/download/' + filename || b.sheetUrl === path);
+        isBulk = targetBookings.length > 0 && targetBookings.some(b => b.bulkGroupId);
+      }
+
+      const blob = isExtract
+        ? await generateExtractBookingExcel(targetBookings, mappedInstruments, mappedUsers)
+        : await generateBookingExcel(targetBookings, mappedInstruments, mappedUsers, isBulk);
+
       return new Response(blob, {
         status: 200,
         headers: {

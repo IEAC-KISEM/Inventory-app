@@ -202,13 +202,23 @@ export default function VendorManagementView({ currentUserRole }) {
       if (!res.ok) throw new Error("Export failed")
       const blob = await res.blob()
       const objectUrl = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = objectUrl
-      a.download = "vendors_export.xlsx"
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(objectUrl)
+
+      // Detect if user is on iPhone / iPad / iOS Safari
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+      if (isIOS) {
+        // iOS Safari workaround: navigate the current window to the blob URL to prompt a native download
+        window.location.href = objectUrl;
+      } else {
+        const a = document.createElement("a")
+        a.href = objectUrl
+        a.download = "vendors_export.xlsx"
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 3000)
+      }
       showNotification("Selected vendors exported successfully!")
     } catch (err) {
       console.error(err)

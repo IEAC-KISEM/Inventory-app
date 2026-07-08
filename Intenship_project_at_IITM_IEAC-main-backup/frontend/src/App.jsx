@@ -233,17 +233,27 @@ export default function App() {
       const xlsxMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
       const blob = new Blob([rawBlob], { type: xlsxMime })
       const objectUrl = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = objectUrl
-      a.download = safeFileName
-      a.style.display = "none"
-      document.body.appendChild(a)
-      a.click()
-      // Revoke the object URL and clean up the anchor after download starts
-      setTimeout(() => {
-        URL.revokeObjectURL(objectUrl)
-        a.remove()
-      }, 3000)
+
+      // Detect if user is on iPhone / iPad / iOS Safari
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+      if (isIOS) {
+        // iOS Safari workaround: navigate the current window to the blob URL to prompt a native download
+        window.location.href = objectUrl;
+      } else {
+        const a = document.createElement("a")
+        a.href = objectUrl
+        a.download = safeFileName
+        a.style.display = "none"
+        document.body.appendChild(a)
+        a.click()
+        // Revoke the object URL and clean up the anchor after download starts
+        setTimeout(() => {
+          URL.revokeObjectURL(objectUrl)
+          a.remove()
+        }, 3000)
+      }
     } catch (err) {
       console.error("offerDownload error:", err)
       // Last-resort fallback: direct navigation
@@ -319,11 +329,11 @@ export default function App() {
   ]
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background font-sans text-foreground relative">
+    <div className="flex h-[100dvh] overflow-hidden bg-background font-sans text-foreground relative">
       {/* Mobile sidebar backdrop */}
       {mobileMenuOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/45 lg:hidden transition-opacity"
+          className="fixed inset-0 z-40 bg-black/45 lg:hidden transition-opacity cursor-pointer"
           onClick={() => setMobileMenuOpen(false)}
         />
       )}
