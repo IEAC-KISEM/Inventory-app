@@ -2681,4 +2681,4 @@ INSERT INTO public.products (id,vendor_id,name,description,category,brand,produc
 -- SEED: BOOKINGS (purchase_orders)
 -- ============================================================
 
--- Setup complete! You can now log in with admin@iitm.com / VcydDPyQRH9@zU7
+
