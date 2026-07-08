@@ -58,6 +58,14 @@ export default function BookingView({ instruments, searchTerm, currentUserId, cu
     }
   }
   
+  // Notification State
+  const [notification, setNotification] = useState(null)
+  
+  const showNotification = (message, type = "success") => {
+    setNotification({ message, type })
+    setTimeout(() => setNotification(null), 4000)
+  }
+
   // Modals Open State
   const [bookModalOpen, setBookModalOpen] = useState(false)
   const [returnModalOpen, setReturnModalOpen] = useState(false)
@@ -178,14 +186,13 @@ export default function BookingView({ instruments, searchTerm, currentUserId, cu
       const data = await res.json()
       if (res.ok) {
         setBookModalOpen(false)
+        showNotification("instruments booking request sent", "success")
         if (data && data.sheet) {
           offerDownload(data.sheet)
-        } else if (data && data.pending) {
-          alert(data.message || "Booking request submitted to admin for approval.")
         }
         loadAll()
       } else {
-        alert(data.error || "Failed to book instrument.")
+        showNotification(data.error || "Failed to book instrument.", "error")
       }
     } catch (err) {
       console.error("Booking error", err)
@@ -229,10 +236,11 @@ export default function BookingView({ instruments, searchTerm, currentUserId, cu
 
       if (res.ok) {
         setReturnModalOpen(false)
+        showNotification("instruments returned", "success")
         loadAll()
       } else {
         const data = await res.json()
-        alert(data.error || "Failed to return instrument.")
+        showNotification(data.error || "Failed to return instrument.", "error")
       }
     } catch (err) {
       console.error("Return error", err)
@@ -276,14 +284,13 @@ export default function BookingView({ instruments, searchTerm, currentUserId, cu
       if (res.ok) {
         setBulkBookModalOpen(false)
         setSelectedIds([])
+        showNotification("instruments booking request sent", "success")
         if (data && data.sheet) {
           offerDownload(data.sheet)
-        } else if (data && data.pending) {
-          alert(data.message || "Bulk booking requests submitted for approval.")
         }
         loadAll()
       } else {
-        alert("Failed bulk booking.")
+        showNotification("Failed bulk booking.", "error")
       }
     } catch (err) {
       console.error("Bulk booking error", err)
@@ -341,14 +348,13 @@ export default function BookingView({ instruments, searchTerm, currentUserId, cu
       if (res.ok) {
         setBulkPreBookModalOpen(false)
         setSelectedIds([])
+        showNotification("instruments booking request sent", "success")
         if (data && data.sheet) {
           offerDownload(data.sheet)
-        } else if (data && data.pending) {
-          alert(data.message || "Bulk pre-booking requests submitted for admin approval.")
         }
         loadAll()
       } else {
-        alert(data.error || "Failed bulk pre-booking.")
+        showNotification(data.error || "Failed bulk pre-booking.", "error")
       }
     } catch (err) {
       console.error("Bulk pre-book error", err)
@@ -403,9 +409,10 @@ export default function BookingView({ instruments, searchTerm, currentUserId, cu
       if (res.ok) {
         setBulkReturnModalOpen(false)
         setSelectedIds([])
+        showNotification("instruments returned", "success")
         loadAll()
       } else {
-        alert("Failed bulk return.")
+        showNotification("Failed bulk return.", "error")
       }
     } catch (err) {
       console.error("Bulk return error", err)
@@ -418,6 +425,17 @@ export default function BookingView({ instruments, searchTerm, currentUserId, cu
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+      {/* Toast Alert */}
+      {notification && (
+        <div className={`fixed top-4 right-4 z-50 flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg animate-in fade-in slide-in-from-top-3 duration-300 ${
+          notification.type === "error" 
+            ? "bg-destructive/15 border-destructive text-destructive" 
+            : "bg-emerald-500/15 border-emerald-500 text-emerald-600 dark:text-emerald-400"
+        }`}>
+          <Info className="w-5 h-5 shrink-0" />
+          <span className="text-sm font-semibold">{notification.message}</span>
+        </div>
+      )}
       <div>
         <h1 className="text-3xl font-bold tracking-tight text-foreground">Booking & Return</h1>
         <p className="text-muted-foreground">Check out instruments or log return procedures and notes.</p>
