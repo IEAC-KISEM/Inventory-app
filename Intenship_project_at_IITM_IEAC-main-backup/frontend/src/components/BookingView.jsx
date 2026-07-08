@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table"
-import { Info, Download, ArrowUpDown, CheckCircle, XCircle, FileSpreadsheet, Layers, Trash2 } from "lucide-react"
+import { Info, Download, ArrowUpDown, CheckCircle, XCircle, FileSpreadsheet, Layers, Trash2, CheckCircle2, AlertCircle, X, PackageCheck, Undo2 } from "lucide-react"
 
 export default function BookingView({ instruments, searchTerm, currentUserId, currentUserRole, refreshKey, loadAll, offerDownload }) {
   const [selectedIds, setSelectedIds] = useState([])
@@ -60,10 +60,15 @@ export default function BookingView({ instruments, searchTerm, currentUserId, cu
   
   // Notification State
   const [notification, setNotification] = useState(null)
+  const [notifVisible, setNotifVisible] = useState(false)
   
-  const showNotification = (message, type = "success") => {
-    setNotification({ message, type })
-    setTimeout(() => setNotification(null), 4000)
+  const showNotification = (message, type = "success", title = null) => {
+    setNotification({ message, type, title: title || (type === 'success' ? 'Success' : 'Error') })
+    setNotifVisible(true)
+    setTimeout(() => {
+      setNotifVisible(false)
+      setTimeout(() => setNotification(null), 400)
+    }, 4500)
   }
 
   // Modals Open State
@@ -186,13 +191,13 @@ export default function BookingView({ instruments, searchTerm, currentUserId, cu
       const data = await res.json()
       if (res.ok) {
         setBookModalOpen(false)
-        showNotification("instruments booking request sent", "success")
+        showNotification("Your booking request has been submitted and is pending admin approval.", "success", "📋 Booking Request Sent")
         if (data && data.sheet) {
           offerDownload(data.sheet)
         }
         loadAll()
       } else {
-        showNotification(data.error || "Failed to book instrument.", "error")
+        showNotification(data.error || "Failed to book instrument.", "error", "Booking Failed")
       }
     } catch (err) {
       console.error("Booking error", err)
@@ -236,11 +241,11 @@ export default function BookingView({ instruments, searchTerm, currentUserId, cu
 
       if (res.ok) {
         setReturnModalOpen(false)
-        showNotification("instruments returned", "success")
+        showNotification("The instrument has been returned successfully. Thank you!", "success", "✅ Return Confirmed")
         loadAll()
       } else {
         const data = await res.json()
-        showNotification(data.error || "Failed to return instrument.", "error")
+        showNotification(data.error || "Failed to return instrument.", "error", "Return Failed")
       }
     } catch (err) {
       console.error("Return error", err)
@@ -284,13 +289,13 @@ export default function BookingView({ instruments, searchTerm, currentUserId, cu
       if (res.ok) {
         setBulkBookModalOpen(false)
         setSelectedIds([])
-        showNotification("instruments booking request sent", "success")
+        showNotification("Bulk booking request submitted! Pending admin approval.", "success", "📋 Bulk Booking Sent")
         if (data && data.sheet) {
           offerDownload(data.sheet)
         }
         loadAll()
       } else {
-        showNotification("Failed bulk booking.", "error")
+        showNotification("Failed to submit bulk booking. Please try again.", "error", "Bulk Booking Failed")
       }
     } catch (err) {
       console.error("Bulk booking error", err)
@@ -348,13 +353,13 @@ export default function BookingView({ instruments, searchTerm, currentUserId, cu
       if (res.ok) {
         setBulkPreBookModalOpen(false)
         setSelectedIds([])
-        showNotification("instruments booking request sent", "success")
+        showNotification("Pre-booking request submitted! Instruments are queued for when they become available.", "success", "⏳ Pre-Booking Sent")
         if (data && data.sheet) {
           offerDownload(data.sheet)
         }
         loadAll()
       } else {
-        showNotification(data.error || "Failed bulk pre-booking.", "error")
+        showNotification(data.error || "Failed to submit pre-booking.", "error", "Pre-Booking Failed")
       }
     } catch (err) {
       console.error("Bulk pre-book error", err)
@@ -409,10 +414,10 @@ export default function BookingView({ instruments, searchTerm, currentUserId, cu
       if (res.ok) {
         setBulkReturnModalOpen(false)
         setSelectedIds([])
-        showNotification("instruments returned", "success")
+        showNotification("All selected instruments returned successfully!", "success", "✅ Bulk Return Confirmed")
         loadAll()
       } else {
-        showNotification("Failed bulk return.", "error")
+        showNotification("Failed to process bulk return. Please try again.", "error", "Bulk Return Failed")
       }
     } catch (err) {
       console.error("Bulk return error", err)
@@ -425,17 +430,59 @@ export default function BookingView({ instruments, searchTerm, currentUserId, cu
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      {/* Toast Alert */}
+      {/* Premium Toast Notification */}
       {notification && (
-        <div className={`fixed top-4 right-4 z-50 flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg animate-in fade-in slide-in-from-top-3 duration-300 ${
-          notification.type === "error" 
-            ? "bg-destructive/15 border-destructive text-destructive" 
-            : "bg-emerald-500/15 border-emerald-500 text-emerald-600 dark:text-emerald-400"
-        }`}>
-          <Info className="w-5 h-5 shrink-0" />
-          <span className="text-sm font-semibold">{notification.message}</span>
+        <div
+          className="fixed top-5 right-5 z-[9999] w-80 pointer-events-auto"
+          style={{
+            transform: notifVisible ? 'translateX(0)' : 'translateX(110%)',
+            opacity: notifVisible ? 1 : 0,
+            transition: 'transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease'
+          }}
+        >
+          <div className={`relative overflow-hidden rounded-xl border shadow-2xl ${
+            notification.type === 'error'
+              ? 'bg-red-50 dark:bg-red-950/60 border-red-200 dark:border-red-800'
+              : 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-800'
+          }`}>
+            {/* Progress bar */}
+            <div
+              className={`absolute top-0 left-0 h-1 ${
+                notification.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'
+              }`}
+              style={{ animation: 'notif-shrink 4.5s linear forwards' }}
+            />
+            <div className="flex items-start gap-3 p-4 pr-10">
+              <div className={`mt-0.5 flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center ${
+                notification.type === 'error'
+                  ? 'bg-red-100 dark:bg-red-900/50'
+                  : 'bg-emerald-100 dark:bg-emerald-900/50'
+              }`}>
+                {notification.type === 'error'
+                  ? <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+                  : <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-bold ${
+                  notification.type === 'error' ? 'text-red-800 dark:text-red-200' : 'text-emerald-800 dark:text-emerald-200'
+                }`}>{notification.title}</p>
+                <p className={`text-xs mt-0.5 leading-snug ${
+                  notification.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-emerald-700 dark:text-emerald-300'
+                }`}>{notification.message}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => { setNotifVisible(false); setTimeout(() => setNotification(null), 400); }}
+              className={`absolute top-3 right-3 p-0.5 rounded-md opacity-60 hover:opacity-100 transition-opacity ${
+                notification.type === 'error' ? 'text-red-600' : 'text-emerald-600'
+              }`}
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
+      <style>{`@keyframes notif-shrink { from { width: 100%; } to { width: 0%; } }`}</style>
       <div>
         <h1 className="text-3xl font-bold tracking-tight text-foreground">Booking & Return</h1>
         <p className="text-muted-foreground">Check out instruments or log return procedures and notes.</p>

@@ -1077,15 +1077,17 @@ window.fetch = async function (url, options = {}) {
     // --- 7. VENDORS, PRODUCTS & UTILITIES ---
     if (path === '/api/vendors') {
       if (method === 'GET') {
-        const q = (query.q || '').trim();
-        const utilityFilter = (query.utility || '').trim();
+        const q = (query.q || '').trim().toLowerCase();
+        const utilityFilter = (query.utility || '').trim().toLowerCase();
         const vendorFilter = (query.vendor || '').trim();
-        const productFilter = (query.product || '').trim();
+        const productFilter = (query.product || '').trim().toLowerCase();
         const page = parseInt(query.page) || 1;
         const limit = parseInt(query.limit) || 10;
 
-        // Perform index-fast filtering directly in PostgreSQL via RPC
-        const { data, error } = await supabase.rpc('search_vendors', {
+        // Try the RPC first, fallback to direct table query if RPC not available
+        let vendors = [];
+        let products = [];
+        const { data: rpcData, error: rpcErr } = await supabase.rpc('search_vendors', {
           search_query: q,
           utility_filter: utilityFilter,
           vendor_filter: vendorFilter,
@@ -1096,10 +1098,71 @@ window.fetch = async function (url, options = {}) {
           sort_order: 'asc'
         });
 
-        if (error) return errorResponse(error.message);
+        if (!rpcErr && rpcData) {
+          // RPC succeeded - use its results
+          const total = rpcData.length > 0 ? rpcData[0].total_count : 0;
+          const mapped = rpcData.map(v => ({
+            id: v.id,
+            name: v.name,
+            companyName: v.company_name,
+            vendorType: v.vendor_type,
+            status: v.status,
+            contactPerson: v.contact_person,
+            mobileNumber: v.mobile_number,
+            alternativeMobileNumber: v.alternative_mobile_number,
+            email: v.email,
+            website: v.website,
+            streetAddress: v.street_address,
+            city: v.city,
+            state: v.state,
+            country: v.country,
+            pinCode: v.pin_code,
+            gstin: v.gstin,
+            pan: v.pan,
+            businessRegNo: v.business_reg_no,
+            remarks: v.remarks,
+            productCount: v.product_count,
+            createdAt: v.created_at,
+            products: []
+          }));
+          return jsonResponse({ vendors: mapped, total, page, limit, totalPages: Math.ceil(total / limit) });
+        }
 
-        const total = data && data.length > 0 ? data[0].total_count : 0;
-        const mapped = (data || []).map(v => ({
+        // Fallback: direct table query (works even without the RPC deployed)
+        const { data: allVendors, error: vErr } = await supabase.from('vendors').select('*').order('name');
+        if (vErr) return errorResponse(vErr.message);
+        vendors = allVendors || [];
+
+        if (productFilter || utilityFilter) {
+          const { data: allProducts } = await supabase.from('products').select('*');
+          products = allProducts || [];
+        }
+
+        // Client-side filtering
+        let filtered = vendors.filter(v => {
+          const matchesSearch = !q || [v.name, v.company_name, v.contact_person, v.city].some(
+            f => f && f.toLowerCase().includes(q)
+          );
+          const matchesVendor = !vendorFilter || v.id === vendorFilter;
+          let matchesProduct = true;
+          let matchesUtility = true;
+          if ((productFilter || utilityFilter) && products.length > 0) {
+            const vProds = products.filter(p => p.vendor_id === v.id);
+            if (productFilter) matchesProduct = vProds.some(p => (p.name || '').toLowerCase().includes(productFilter));
+            if (utilityFilter) matchesUtility = vProds.some(p => (p.utility_name || '').toLowerCase().includes(utilityFilter));
+          }
+          return matchesSearch && matchesVendor && matchesProduct && matchesUtility;
+        });
+
+        const total = filtered.length;
+        const paginated = filtered.slice((page - 1) * limit, page * limit);
+
+        // Fetch product counts
+        const { data: allProducts2 } = await supabase.from('products').select('vendor_id');
+        const productCounts = {};
+        (allProducts2 || []).forEach(p => { productCounts[p.vendor_id] = (productCounts[p.vendor_id] || 0) + 1; });
+
+        const mapped = paginated.map(v => ({
           id: v.id,
           name: v.name,
           companyName: v.company_name,
@@ -1119,18 +1182,12 @@ window.fetch = async function (url, options = {}) {
           pan: v.pan,
           businessRegNo: v.business_reg_no,
           remarks: v.remarks,
-          productCount: v.product_count,
+          productCount: productCounts[v.id] || 0,
           createdAt: v.created_at,
-          products: [] // Lazily fetched in profiles
+          products: []
         }));
 
-        return jsonResponse({
-          vendors: mapped,
-          total,
-          page,
-          limit,
-          totalPages: Math.ceil(total / limit)
-        });
+        return jsonResponse({ vendors: mapped, total, page, limit, totalPages: Math.ceil(total / limit) });
       }
 
       if (method === 'POST') {
