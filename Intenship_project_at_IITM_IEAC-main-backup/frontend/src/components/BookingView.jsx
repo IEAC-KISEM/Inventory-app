@@ -84,7 +84,7 @@ export default function BookingView({ instruments, searchTerm, currentUserId, cu
   // Form Fields State
   const [bookDays, setBookDays] = useState("7")
   const [bookRemarks, setBookRemarks] = useState("")
-  const [returnRemarks, setReturnRemarks] = useState("good no issue")
+  const [returnRemarks, setReturnRemarks] = useState("")
   const [returnInsight, setReturnInsight] = useState("")
   
   // Pre-booking date state (for single and bulk pre-book)
@@ -98,7 +98,7 @@ export default function BookingView({ instruments, searchTerm, currentUserId, cu
   const [bulkPreBookRemarks, setBulkPreBookRemarks] = useState("")
 
   // Bulk Return Extra States
-  const [bulkReturnRemarks, setBulkReturnRemarks] = useState("good no issue")
+  const [bulkReturnRemarks, setBulkReturnRemarks] = useState("")
   const [addPerInstrumentNotes, setAddPerInstrumentNotes] = useState(false)
   const [perInstrumentNotes, setPerInstrumentNotes] = useState({}) // { [id]: "" }
 
@@ -207,7 +207,7 @@ export default function BookingView({ instruments, searchTerm, currentUserId, cu
   // Individual Return
   const openReturnModal = (it) => {
     setTargetInstrument(it)
-    setReturnRemarks("good no issue")
+    setReturnRemarks("")
     setReturnInsight("")
     setReturnModalOpen(true)
   }
@@ -376,7 +376,7 @@ export default function BookingView({ instruments, searchTerm, currentUserId, cu
       alert("Select at least one booked instrument to return.")
       return
     }
-    setBulkReturnRemarks("good no issue")
+    setBulkReturnRemarks("")
     setAddPerInstrumentNotes(false)
     setPerInstrumentNotes({})
     setBulkReturnModalOpen(true)
@@ -743,7 +743,7 @@ export default function BookingView({ instruments, searchTerm, currentUserId, cu
               <Label htmlFor="returnRemarks">Remarks</Label>
               <Input 
                 id="returnRemarks" 
-                placeholder="e.g., Returned in good condition" 
+                placeholder="e.g., good" 
                 value={returnRemarks} 
                 onChange={(e) => setReturnRemarks(e.target.value)} 
                 required
@@ -896,7 +896,7 @@ export default function BookingView({ instruments, searchTerm, currentUserId, cu
               <Label htmlFor="bulkReturnRemarks">Common Return Remarks (applied to all)</Label>
               <Textarea 
                 id="bulkReturnRemarks" 
-                placeholder="Common remarks for the return sheet..." 
+                placeholder="e.g., good" 
                 value={bulkReturnRemarks} 
                 onChange={(e) => setBulkReturnRemarks(e.target.value)} 
                 required
