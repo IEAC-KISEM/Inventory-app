@@ -7,10 +7,10 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://pefgdydkticywzjrgnrm.supabase.co';
-// Set via env: SUPABASE_SERVICE_KEY=sb_secret_... node seed_supabase.js
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || '';
-const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBlZmdkeWRrdGljeXd6anJnbnJtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMzOTI2NzQsImV4cCI6MjA5ODk2ODY3NH0.z-pLvGNUfq784TNZ_4_ZtD_yKcgX39zkcfcU9wWtW4o';
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://cxojeukkobhkrrrcwmoe.supabase.co';
+// Set via env: SUPABASE_SECRET_KEY=sb_secret_... node seed_supabase.js
+const SERVICE_KEY = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_KEY || '';
+const ANON_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_E9dWEb7tccj3aZf8PbgLuw_-gtj8kUm';
 
 // User plaintext passwords (to recreate properly in Supabase auth)
 const USER_PASSWORDS = {

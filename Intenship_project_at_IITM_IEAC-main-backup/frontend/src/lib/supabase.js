@@ -1,11 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 
 // Fallback to your project credentials directly if environment variables are not loaded/cached
-const DEFAULT_URL = 'https://pefgdydkticywzjrgnrm.supabase.co';
-const DEFAULT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBlZmdkeWRrdGljeXd6anJnbnJtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMzOTI2NzQsImV4cCI6MjA5ODk2ODY3NH0.z-pLvGNUfq784TNZ_4_ZtD_yKcgX39zkcfcU9wWtW4o';
+const DEFAULT_URL = 'https://cxojeukkobhkrrrcwmoe.supabase.co';
+const DEFAULT_KEY = 'sb_publishable_E9dWEb7tccj3aZf8PbgLuw_-gtj8kUm';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || import.meta.env.SUPABASE_URL || DEFAULT_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.SUPABASE_ANON_KEY || DEFAULT_KEY;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.SUPABASE_PUBLISHABLE_KEY || DEFAULT_KEY;
 
 let supabaseInstance;
 let adminAuthClientInstance;

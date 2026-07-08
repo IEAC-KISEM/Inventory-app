@@ -6,8 +6,8 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://pefgdydkticywzjrgnrm.supabase.co';
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || '';
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://cxojeukkobhkrrrcwmoe.supabase.co';
+const SERVICE_KEY = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_KEY || '';
 
 function httpRequest(method, hostname, reqPath, headers, body) {
   return new Promise((resolve, reject) => {
