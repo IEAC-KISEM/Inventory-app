@@ -187,18 +187,15 @@ async function init() {
 }
 
 async function getInstruments() {
-  await db.read();
-  return db.data.instruments;
+    return db.data.instruments;
 }
 
 async function getInstrumentById(id) {
-  await db.read();
-  return db.data.instruments.find(i => String(i.id) === String(id));
+    return db.data.instruments.find(i => String(i.id) === String(id));
 }
 
 async function insertInstrument(it) {
-  await db.read();
-  const id = nanoid(8);
+    const id = nanoid(8);
   // default learning / documentation fields
   const defaults = {
     productImages: [],
@@ -227,8 +224,7 @@ async function insertInstrument(it) {
 }
 
 async function updateInstrument(id, fields) {
-  await db.read();
-  const inst = db.data.instruments.find(i => String(i.id) === String(id));
+    const inst = db.data.instruments.find(i => String(i.id) === String(id));
   if (!inst) return null;
   Object.assign(inst, fields);
   await db.write();
@@ -236,26 +232,22 @@ async function updateInstrument(id, fields) {
 }
 
 async function deleteInstrument(id) {
-  await db.read();
-  db.data.instruments = db.data.instruments.filter(i => String(i.id) !== String(id));
+    db.data.instruments = db.data.instruments.filter(i => String(i.id) !== String(id));
   await db.write();
 }
 
 async function deleteBooking(id) {
-  await db.read();
-  db.data.bookings = db.data.bookings.filter(b => String(b.id) !== String(id));
+    db.data.bookings = db.data.bookings.filter(b => String(b.id) !== String(id));
   await db.write();
 }
 
 async function deleteBookingsByBulkGroupId(groupId) {
-  await db.read();
-  db.data.bookings = db.data.bookings.filter(b => String(b.bulkGroupId) !== String(groupId));
+    db.data.bookings = db.data.bookings.filter(b => String(b.bulkGroupId) !== String(groupId));
   await db.write();
 }
 
 async function getUsers() {
-  await db.read();
-  return db.data.users.map(u => ({
+    return db.data.users.map(u => ({
     ...u,
     name: decrypt(u.name),
     email: decrypt(u.email),
@@ -264,8 +256,7 @@ async function getUsers() {
 }
 
 async function insertBooking(b) {
-  await db.read();
-  const id = nanoid(8);
+    const id = nanoid(8);
   const row = { id, returnedDate: null, ...b };
   db.data.bookings.push(row);
   await db.write();
@@ -273,13 +264,11 @@ async function insertBooking(b) {
 }
 
 async function getBookings() {
-  await db.read();
-  return db.data.bookings;
+    return db.data.bookings;
 }
 
 async function findActiveBookingByInstrument(instrumentId) {
-  await db.read();
-  const now = new Date();
+    const now = new Date();
   const bookings = db.data.bookings
     .filter(b => String(b.instrumentId) === String(instrumentId) && !b.returnedDate && b.status === 'approved')
     .sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
@@ -308,8 +297,7 @@ async function findActiveBookingByInstrument(instrumentId) {
 }
 
 async function returnBooking(bookingId, returnedDate, remarks, returnedById, returnedByName) {
-  await db.read();
-  const b = db.data.bookings.find(x => String(x.id) === String(bookingId));
+    const b = db.data.bookings.find(x => String(x.id) === String(bookingId));
   if (!b) return null;
   b.returnedDate = returnedDate;
   b.dueDate = returnedDate;
@@ -327,8 +315,7 @@ async function returnBooking(bookingId, returnedDate, remarks, returnedById, ret
 }
 
 async function setInstrumentInsight(instrumentId, insight) {
-  await db.read();
-  const inst = db.data.instruments.find(i=>String(i.id)===String(instrumentId));
+    const inst = db.data.instruments.find(i=>String(i.id)===String(instrumentId));
   if(!inst) return null;
   inst.lastInsight = insight;
   await db.write();
@@ -336,13 +323,11 @@ async function setInstrumentInsight(instrumentId, insight) {
 }
 
 async function getInstrumentByIdFull(id){
-  await db.read();
-  return db.data.instruments.find(i => String(i.id) === String(id));
+    return db.data.instruments.find(i => String(i.id) === String(id));
 }
 
 async function getInstrumentsDueForCalibration(days=15){
-  await db.read();
-  const now = new Date();
+    const now = new Date();
   const cutoff = new Date(now.getTime() + days*24*3600*1000);
   return db.data.instruments.filter(i=> i.nextCalibrationDate && new Date(i.nextCalibrationDate) >= now && new Date(i.nextCalibrationDate) <= cutoff);
 }
@@ -350,15 +335,13 @@ async function getInstrumentsDueForCalibration(days=15){
 async function writeData() { await db.write(); }
 
 async function setBookings(bookings) {
-  await db.read();
-  db.data.bookings = bookings;
+    db.data.bookings = bookings;
   await db.write();
   return db.data.bookings;
 }
 
 async function hashPasswordsInDb() {
-  await db.read();
-  let updated = false;
+    let updated = false;
   db.data.users = db.data.users || [];
   for (const user of db.data.users) {
     if (user.password && !user.password.startsWith('$2a$') && !user.password.startsWith('$2b$')) {
@@ -373,8 +356,7 @@ async function hashPasswordsInDb() {
 }
 
 async function insertUser(u) {
-  await db.read();
-  const id = nanoid(8);
+    const id = nanoid(8);
   const hashedPassword = await bcrypt.hash(u.password, 10);
   const row = {
     id,
@@ -395,13 +377,11 @@ async function getUserByEmail(email) {
 }
 
 async function getBookingById(id) {
-  await db.read();
-  return db.data.bookings.find(b => String(b.id) === String(id));
+    return db.data.bookings.find(b => String(b.id) === String(id));
 }
 
 async function updateBooking(id, fields) {
-  await db.read();
-  const b = db.data.bookings.find(x => String(x.id) === String(id));
+    const b = db.data.bookings.find(x => String(x.id) === String(id));
   if (!b) return null;
   Object.assign(b, fields);
   await db.write();
@@ -409,19 +389,16 @@ async function updateBooking(id, fields) {
 }
 
 async function getBookingsByBulkGroupId(groupId) {
-  await db.read();
-  return db.data.bookings.filter(b => b.bulkGroupId === groupId);
+    return db.data.bookings.filter(b => b.bulkGroupId === groupId);
 }
 
 async function deleteUser(id) {
-  await db.read();
-  db.data.users = db.data.users.filter(u => String(u.id) !== String(id));
+    db.data.users = db.data.users.filter(u => String(u.id) !== String(id));
   await db.write();
 }
 
 async function updateUser(id, fields) {
-  await db.read();
-  const u = db.data.users.find(x => String(x.id) === String(id));
+    const u = db.data.users.find(x => String(x.id) === String(id));
   if (!u) return null;
   
   const encryptedFields = { ...fields };
@@ -441,18 +418,15 @@ async function updateUser(id, fields) {
 }
 
 async function getVendors() {
-  await db.read();
-  return db.data.vendors || [];
+    return db.data.vendors || [];
 }
 
 async function getVendorById(id) {
-  await db.read();
-  return (db.data.vendors || []).find(v => String(v.id) === String(id));
+    return (db.data.vendors || []).find(v => String(v.id) === String(id));
 }
 
 async function insertVendor(v) {
-  await db.read();
-  const id = 'VND' + nanoid(5).toUpperCase();
+    const id = 'VND' + nanoid(5).toUpperCase();
   const row = { id, ...v };
   db.data.vendors = db.data.vendors || [];
   db.data.vendors.push(row);
@@ -461,8 +435,7 @@ async function insertVendor(v) {
 }
 
 async function updateVendor(id, fields) {
-  await db.read();
-  const vendor = (db.data.vendors || []).find(v => String(v.id) === String(id));
+    const vendor = (db.data.vendors || []).find(v => String(v.id) === String(id));
   if (!vendor) return null;
   Object.assign(vendor, fields);
   await db.write();
@@ -470,30 +443,25 @@ async function updateVendor(id, fields) {
 }
 
 async function deleteVendor(id) {
-  await db.read();
-  db.data.vendors = (db.data.vendors || []).filter(v => String(v.id) !== String(id));
+    db.data.vendors = (db.data.vendors || []).filter(v => String(v.id) !== String(id));
   db.data.products = (db.data.products || []).filter(p => String(p.vendorId) !== String(id));
   await db.write();
 }
 
 async function getProducts() {
-  await db.read();
-  return db.data.products || [];
+    return db.data.products || [];
 }
 
 async function getProductsByVendor(vendorId) {
-  await db.read();
-  return (db.data.products || []).filter(p => String(p.vendorId) === String(vendorId));
+    return (db.data.products || []).filter(p => String(p.vendorId) === String(vendorId));
 }
 
 async function getProductById(id) {
-  await db.read();
-  return (db.data.products || []).find(p => String(p.id) === String(id));
+    return (db.data.products || []).find(p => String(p.id) === String(id));
 }
 
 async function insertProduct(p) {
-  await db.read();
-  const id = 'PRD' + nanoid(5).toUpperCase();
+    const id = 'PRD' + nanoid(5).toUpperCase();
   const row = { id, ...p };
   db.data.products = db.data.products || [];
   db.data.products.push(row);
@@ -502,8 +470,7 @@ async function insertProduct(p) {
 }
 
 async function updateProduct(id, fields) {
-  await db.read();
-  const prod = (db.data.products || []).find(p => String(p.id) === String(id));
+    const prod = (db.data.products || []).find(p => String(p.id) === String(id));
   if (!prod) return null;
   Object.assign(prod, fields);
   await db.write();
@@ -511,19 +478,16 @@ async function updateProduct(id, fields) {
 }
 
 async function deleteProduct(id) {
-  await db.read();
-  db.data.products = (db.data.products || []).filter(p => String(p.id) !== String(id));
+    db.data.products = (db.data.products || []).filter(p => String(p.id) !== String(id));
   await db.write();
 }
 
 async function getUtilities() {
-  await db.read();
-  return db.data.utilities || [];
+    return db.data.utilities || [];
 }
 
 async function insertUtility(name) {
-  await db.read();
-  db.data.utilities = db.data.utilities || [];
+    db.data.utilities = db.data.utilities || [];
   const norm = name.toLowerCase().trim();
   const existing = db.data.utilities.find(u => u.id === norm);
   if (existing) {

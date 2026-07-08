@@ -65,8 +65,14 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(cookieParser());
 app.use('/api/', rateLimiter(150, 15 * 60 * 1000));
-app.use(express.static(path.join(__dirname, 'frontend/dist')));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'frontend/dist'), {
+  maxAge: '1d',
+  etag: true
+}));
+app.use(express.static(path.join(__dirname, 'public'), {
+  maxAge: '1d',
+  etag: true
+}));
 
 // Authentication and Authorization Middleware
 const authenticateToken = async (req, res, next) => {
@@ -396,10 +402,11 @@ app.get('/api/users', authenticateToken, async (req, res) => {
 
 app.post('/api/login', async (req, res) => {
   const { email, password } = req.body;
+  const trimmedEmail = (email || '').trim();
   if (!email || !password) {
     return res.status(400).json({ error: 'Mail ID and password are required.' });
   }
-  const user = await db.getUserByEmail(email);
+  const user = await db.getUserByEmail(trimmedEmail);
   if (!user) {
     return res.status(401).json({ error: 'Invalid Mail ID or password.' });
   }

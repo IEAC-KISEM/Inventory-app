@@ -480,7 +480,8 @@ window.fetch = async function (url, options = {}) {
     // --- 1. AUTHENTICATION & LOGIN ---
     if (path === '/api/login' && method === 'POST') {
       const { email, password } = body;
-      const finalEmail = email.includes('@') ? email : `${email}@iitm.com`;
+      const trimmedEmail = (email || '').trim();
+      const finalEmail = trimmedEmail.includes('@') ? trimmedEmail : `${trimmedEmail}@iitm.com`;
 
       const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({
         email: finalEmail,
