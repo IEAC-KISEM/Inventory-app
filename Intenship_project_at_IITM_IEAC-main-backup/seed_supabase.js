@@ -7,6 +7,28 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 
+// Load environment variables from .env file if it exists
+try {
+  const envPaths = [path.join(__dirname, '.env'), path.join(__dirname, '..', '.env')];
+  for (const envPath of envPaths) {
+    if (fs.existsSync(envPath)) {
+      fs.readFileSync(envPath, 'utf8').split(/\r?\n/).forEach(line => {
+        const part = line.trim();
+        if (part && !part.startsWith('#')) {
+          const idx = part.indexOf('=');
+          if (idx > 0) {
+            const k = part.substring(0, idx).trim();
+            let v = part.substring(idx + 1).trim();
+            if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1);
+            else if (v.startsWith("'") && v.endsWith("'")) v = v.slice(1, -1);
+            if (!process.env[k]) process.env[k] = v;
+          }
+        }
+      });
+    }
+  }
+} catch (err) {}
+
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://cxojeukkobhkrrrcwmoe.supabase.co';
 // Set via env: SUPABASE_SECRET_KEY=sb_secret_... node seed_supabase.js
 const SERVICE_KEY = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_KEY || '';
